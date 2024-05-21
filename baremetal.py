@@ -782,15 +782,27 @@ fi
             state, elapsed, nodes = stdout.split('|')
             nodes = nodes.split(',')
 
+            # Time can be in multiple format:
+            # mm:ss
+            # hh:mm:ss
+            # dd-hh:mm:ss
             # normalize elapsed time into HH:MM:SS regardless of what we get
-            parts = elapsed.split(':')
-            hours = 0
-            if len(parts) > 2:
-                hours = int(parts[-3])
-            if len(parts) > 3:
-                hours += (int(parts[4]) * 24)
-            secs = int(parts[-1])
-            mins = int(parts[-2])
+
+            if '-' in elapsed:  # Days are provided
+                days = int(elapsed.split('-')[0])
+                elapsed = elapsed.split('-')[1]
+            else:
+                days = 0
+
+            if len(elapsed.split(':')) == 3:
+                hours = int(elapsed.split(':')[0]) + days * 24
+                mins = int(elapsed.split(':')[1])
+                secs = int(elapsed.split(':')[2])
+            else:
+                hours = 0
+                mins = int(elapsed.split(':')[0])
+                secs = int(elapsed.split(':')[1])
+
             elapsed = '%02d:%02d:%02d' % (hours, mins, secs)
 
             return state, elapsed, nodes
