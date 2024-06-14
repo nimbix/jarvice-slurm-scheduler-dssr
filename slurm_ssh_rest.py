@@ -73,6 +73,7 @@ class baremetal_connector(object):
         self.ssh_pkey = os.environ['JARVICE_SLURM_SSH_PKEY']
 
         self.log.info('')
+        self.log.info(self.init_dockeruser)
         self.log.info('+----- Slurm Scheduler init report -----+')
         self.log.info('|-- SSH connection to target cluster:')
         self.log.info(f'|     host: {self.ssh_host}')
@@ -344,6 +345,9 @@ export SINGULARITYENV_JARVICE_SERVICE_PORT={JARVICE_SERVICE_PORT}
 export SINGULARITYENV_JARVICE_SSH_PORT={JARVICE_SSH_PORT}
 export JARVICE_SINGULARITY_TMPDIR={JARVICE_SINGULARITY_TMPDIR}
 
+# User
+export JOB_LOCAL_USER={JOB_LOCAL_USER}
+
 # Singularity and images parameters
 export JARVICE_SINGULARITY_OVERLAY_SIZE={JARVICE_SINGULARITY_OVERLAY_SIZE}
 
@@ -440,7 +444,7 @@ export SCNO_PROXY={JARVICE_BAREMETAL_NO_PROXY}
         print('2')
 
         # USER ID MAPPING
-        self.jod_mapped_user = users_mapping[self.jobobj_user]
+        self.job_mapped_user = users_mapping[self.jobobj_user]
 
         # determine appropriate Docker secret
         def get_reg(url):
@@ -569,7 +573,7 @@ export SCNO_PROXY={JARVICE_BAREMETAL_NO_PROXY}
         self.log.info(jarvice_cmd)
 
         # Port is hard-coded for this simple version
-        ssh_port = 7777
+        ssh_port = 2222
         svc_port = 7778
 
         script = hpc_script.format(
@@ -593,7 +597,8 @@ export SCNO_PROXY={JARVICE_BAREMETAL_NO_PROXY}
                 JARVICE_BAREMETAL_HTTPS_PROXY=self.baremetal_https_proxy,
                 JARVICE_BAREMETAL_NO_PROXY=self.baremetal_no_proxy,
                 JARVICE_CMD=jarvice_cmd,
-                SINGULARITY_VERBOSE=self.singularity_verbose
+                SINGULARITY_VERBOSE=self.singularity_verbose,
+                JOB_LOCAL_USER=self.job_mapped_user
             )
         )
 
@@ -617,6 +622,8 @@ export JOB_GPUS_PER_NODE=$SLURM_GPUS_PER_NODE
     """
 
         srun_start = r"""#!/bin/bash
+export SV=true
+set -x
 
 echo "Hello from $(hostname)"
 echo "Entering parallel region"
@@ -624,6 +631,7 @@ echo "Entering parallel region"
 exec 5>&1
 FF=$(srun -K1 --export=ALL -N $SLURM_NNODES \
 -n $SLURM_NNODES --ntasks-per-node=1 /bin/bash -c '
+set -x
 
     """
 
@@ -762,12 +770,11 @@ fi
         "tasks": 2,
         "current_working_directory": "{scratchdir}/{username}/",
         "standard_output": "{scratchdir}/{username}/{job_name}.out",
-        "standard_error": "{scratchdir}/{username}/{job_name}.out",,
+        "standard_error": "{scratchdir}/{username}/{job_name}.out",
         "name": "jarvice_{job_name}",
         "environment": [
             "JARVICE=true"
         ],
-        "tres_per_node":"gres/gpu=1",
         "hold": False
     }}
 }}
@@ -775,11 +782,13 @@ fi
     job_name=name,
     encoded_script=encoded_script,
     scratchdir=self.scratchdir,
-    username=self.jod_mapped_user
+    username=self.job_mapped_user
     )
 
+#         "tres_per_node":"gres/gpu=1",
+
             submit_cmd = """
-mkdir -p $HOME/.jarvice && \
+mkdir -p $HOME/.jarvice &&\
 curl -X POST {slurmrestd_host}:{slurmrestd_port}/slurm/{slurmrestd_api_version}/job/submit \
 -H "X-SLURM-USER-NAME:{username}" \
 -H "X-SLURM-USER-TOKEN:{jwt_token}" \
@@ -792,7 +801,7 @@ EOF
         slurmrestd_port=self.slurmrestd_port,
         slurmrestd_api_version=self.slurmrestd_api_version,
         job_json=job_json,
-        username=self.jod_mapped_user,
+        username=self.job_mapped_user,
         jwt_token=os.getenv('SLURM_JWT')
     )
         except Exception as e:
