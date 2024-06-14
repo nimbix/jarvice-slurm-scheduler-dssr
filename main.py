@@ -2,13 +2,15 @@
 
 from flask import Flask, request, jsonify
 import json
-import baremetal
+import importlib
 import os
 import sys
 
 app = Flask(__name__)
 
 # Load the baremetal connector
+
+baremetal = importlib.import_module(os.getenv('JARVICE_BAREMETAL_CONNECTOR'))
 baremetal_connector = baremetal.baremetal_connector()
 
 # ################## END POINTS - LEGACY
@@ -46,7 +48,7 @@ def submit():
         fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
         print(e, exc_type, fname, exc_tb.tb_lineno)
         return "Could not load arguments, check your passed JSON data.", 500
-
+    print('ok')
     try:
         return jsonify(
             baremetal_connector.submit(name, number, nodes, hpc_script)), 200
@@ -235,16 +237,16 @@ def requests(path):
 # ## RUNNING SERVER
 
 if __name__ == "__main__":
-    from waitress import serve
+    #from waitress import serve
 
     print("Now running as server")
     print("URLs map:")
     print(app.url_map)
 
-    waitress_port = int(os.getenv('WAITRESS_PORT', "5000"))
-    waitress_bind_address = os.getenv('WAITRESS_BIND_ADDRESS', "0.0.0.0")
+    #waitress_port = int(os.getenv('WAITRESS_PORT', "5000"))
+    #waitress_bind_address = os.getenv('WAITRESS_BIND_ADDRESS', "0.0.0.0")
 
-    serve(app, host=waitress_bind_address, port=waitress_port)
+    #serve(app, host=waitress_bind_address, port=waitress_port)
 
-    #app.run(debug=flask_debug, host=flask_bind_address, port=flask_port)
+    app.run(debug=True, host="0.0.0.0", port=5000)
     quit()
