@@ -121,7 +121,7 @@ class baremetal_connector(object):
             self.log.warning(' Please check ssh parameters.')
         self.log.info('\n Init done. Entering main loop.')
 
-    def user_id_mapping(self, user_mail):
+    def user_id_mapping(self, user_mail, jarvice_user):
         """
         Returns mapped username, from main configuration.
         None if not found.
@@ -132,6 +132,11 @@ class baremetal_connector(object):
             if user["mail"] == user_mail:
                 mapped_user = user["local_user"]
                 mapped_user_pkey = user["ssh_private_key_b64"]
+                break
+            elif user["jarvice_user"] == jarvice_user:
+                mapped_user = user["local_user"]
+                mapped_user_pkey = user["ssh_private_key_b64"]
+                break
 
         return mapped_user, mapped_user_pkey
 
@@ -208,8 +213,9 @@ class baremetal_connector(object):
         # If we reach that point, we got a state
         # fetch and clean output - last 10k lines only
         user_name = name.split('-')[-1].split('_')[0]
+        job_mapped_user, job_mapped_user_private_key = self.user_id_mapping("", user_name)
         stdout, stderr = self.ssh(
-            'tail -10000 %s.out' % (self.scratchdir + '/users/' + user_name + '/' + name))
+            'tail -10000 %s.out' % (self.scratchdir + '/users/' + job_mapped_user + '/' + name))
         outs = [stdout,
                 '<< termination state: %s -- see STDOUT for job errors >>' %
                 state]
@@ -333,6 +339,7 @@ class baremetal_connector(object):
             return rsp_json(200, readyjson)
         elif method == 'tail':
             user_name = jobname.split('-')[-1].split('_')[0]
+            job_mapped_user, job_mapped_user_private_key = self.user_id_mapping("", user_name)
             try:
                 lines = int(qs['lines'][0])
                 assert (lines > 1)
@@ -340,7 +347,7 @@ class baremetal_connector(object):
                 lines = 100
             stdout, stderr = self.ssh(
                 'tail -%d %s/%s.out' % (lines,
-                                                self.scratchdir + '/users/' + user_name, jobname))
+                                                self.scratchdir + '/users/' + job_mapped_user, jobname))
             return rsp(200, content_type='text/plain',
                        content=stdout) if stdout else rsp(404)
 
@@ -858,7 +865,7 @@ EOF
             # Decode bearer token so we know the user mail for id mapping
             user_mail = jwt.decode(bearer, options={"verify_signature": False})['email']
             print("coucou4")
-            job_mapped_user, job_mapped_user_private_key = self.user_id_mapping(user_mail)
+            job_mapped_user, job_mapped_user_private_key = self.user_id_mapping(user_mail, "")
             print("coucou5")
             job_mapped_user_private_key = b64decode(job_mapped_user_private_key).decode('utf-8')
             print("coucou3")
@@ -910,9 +917,10 @@ EOF
         # Slurm objects (best effort)
         self.log.info(f'Garbage collecting job: {jobid}')
         user_name = name.split('-')[-1].split('_')[0]
+        job_mapped_user, job_mapped_user_private_key = self.user_id_mapping("", user_name)
         self.ssh('/bin/sh -c "nohup rm -Rf %s.out %s >/dev/null 2>&1 &"' % (
-            self.scratchdir + '/users/' + user_name + '/' + name,
-            self.scratchdir + '/users/' + user_name + '/jobs/' + jobid))
+            self.scratchdir + '/users/' + job_mapped_user + '/' + name,
+            self.scratchdir + '/users/' + job_mapped_user + '/jobs/' + jobid))
 
     def squeue(self, user=None, states=None):
         """ runs squeue (with optional filters) and returns parsed list """
