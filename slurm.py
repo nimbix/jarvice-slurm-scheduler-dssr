@@ -128,7 +128,7 @@ class baremetal_connector(object):
         """
         mapped_user = None
         mapped_user_pkey = None
-        for user in ['users_mapping']:
+        for user in self.connector_configuration['users_id_mapping']:
             if user["mail"] == user_mail:
                 mapped_user = user["local_user"]
                 mapped_user_pkey = user["ssh_private_key_b64"]
@@ -771,7 +771,7 @@ fi
         # Here 2 methods
         # Either REST HTTP, which requires full bearer token, but does not allow idmapping
         # Either ssh (and so cli sbatch), which requires id mapping to be properly configured with users encoded ssh private keys
-
+        print('coucou')
         # HTTP WAY
         if self.slurm_interface == "http":
             # Building HTTP request
@@ -851,13 +851,15 @@ EOF
 
         elif self.slurm_interface == "cli":
             # SSH WAY
-
+            print("coucou2")
             # USER ID MAPPING
             # Decode bearer token so we know the user mail for id mapping
             user_mail = jwt.decode(bearer, options={"verify_signature": False})['email']
-            job_mapped_user, job_mapped_user_private_key = user_id_mapping(user_mail)
+            print("coucou4")
+            job_mapped_user, job_mapped_user_private_key = self.user_id_mapping(user_mail)
+            print("coucou5")
             job_mapped_user_private_key = b64decode(job_mapped_user_private_key).decode('utf-8')
-
+            print("coucou3")
             # ssh to cluster and submit job
             stdout, stderr = self.ssh_as_user(
                 job_mapped_user,
@@ -872,17 +874,17 @@ EOF
                     '--time=' + slurm_time if slurm_time else '',
                     sbatch_add_params if sbatch_add_params else '',
                     name, self.scratchdir, job_mapped_user,
-                    name, self.jobobj_cores * nodes, nodes, '-H' if held else '',
+                    name, jobobj_cores * nodes, nodes, '-H' if held else '',
                     f'-L {licenses}' if licenses else ''),
                 instr=script)
-
+            print("coucou6")
             if not stdout:
                 # self.pmgr.unreserve(number)  --> BEN
                 raise Exception(
                     'submit(): sbatch: ' + stderr.replace('\n', ' -- '))
         
             # SSH
-            jobid = stdout
+            job_id = stdout
 
 
         # remove sensitive lines from script before storing

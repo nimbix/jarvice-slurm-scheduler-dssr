@@ -54,7 +54,11 @@ def submit():
         return jsonify(
             baremetal_connector.submit(name, number, nodes, hpc_script, bearer)), 200
     except Exception as e:
-        return "Failed to submit job." + str(e), 500
+        exc_type, exc_obj, exc_tb = sys.exc_info()
+        fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+        print(e, exc_type, fname, exc_tb.tb_lineno)
+        return "Could not load arguments, check your passed JSON data.", 500
+#        return "Failed to submit job." + str(e), 500
 
 
 @app.route("/nodes", methods=['GET'])

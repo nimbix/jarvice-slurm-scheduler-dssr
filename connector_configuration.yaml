@@ -1,5 +1,5 @@
 slurm_interface: cli # can be either cli or http
-users_mapping:
+users_id_mapping:
   - user: Benoit Leveugle
     mail: benoit.leveugle@atos.net
     local_user: kirby
