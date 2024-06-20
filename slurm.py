@@ -8,6 +8,7 @@ from base64 import b64encode, b64decode
 import logging
 import yaml
 import jwt
+from pathlib import Path
 
 class baremetal_connector(object):
 
@@ -121,7 +122,7 @@ class baremetal_connector(object):
             self.log.warning(' Please check ssh parameters.')
         self.log.info('\n Init done. Entering main loop.')
 
-    def user_id_mapping(self, user_mail, jarvice_user):
+    def user_id_mapping(self, user_mail):
         """
         Returns mapped username, from main configuration.
         None if not found.
@@ -130,11 +131,7 @@ class baremetal_connector(object):
         mapped_user_pkey = None
         for user in self.connector_configuration['users_id_mapping']:
             if user["mail"] == user_mail:
-                mapped_user = user["local_user"]
-                mapped_user_pkey = user["ssh_private_key_b64"]
-                break
-            elif user["jarvice_user"] == jarvice_user:
-                mapped_user = user["local_user"]
+                mapped_user = user["mapped_user"]
                 mapped_user_pkey = user["ssh_private_key_b64"]
                 break
 
@@ -212,8 +209,11 @@ class baremetal_connector(object):
 
         # If we reach that point, we got a state
         # fetch and clean output - last 10k lines only
-        user_name = name.split('-')[-1].split('_')[0]
-        job_mapped_user, job_mapped_user_private_key = self.user_id_mapping("", user_name)
+        jarvice_user = name.split('-')[-1].split('_')[0]
+        with open('users_mapping_db.yaml', 'r') as file:
+            users_mapping_db = yaml.safe_load(file)
+        job_mapped_user = users_mapping_db[jarvice_user]['mapped_user']
+
         stdout, stderr = self.ssh(
             'tail -10000 %s.out' % (self.scratchdir + '/users/' + job_mapped_user + '/' + name))
         outs = [stdout,
@@ -338,8 +338,10 @@ class baremetal_connector(object):
             readyjson = {'about': '', 'help': '', 'url': '', 'actions': {}}
             return rsp_json(200, readyjson)
         elif method == 'tail':
-            user_name = jobname.split('-')[-1].split('_')[0]
-            job_mapped_user, job_mapped_user_private_key = self.user_id_mapping("", user_name)
+            jarvice_user = jobname.split('-')[-1].split('_')[0]
+            with open('users_mapping_db.yaml', 'r') as file:
+                users_mapping_db = yaml.safe_load(file)
+            job_mapped_user = users_mapping_db[jarvice_user]['mapped_user']
             try:
                 lines = int(qs['lines'][0])
                 assert (lines > 1)
@@ -859,15 +861,34 @@ EOF
             job_id = json.loads(stdout)['job_id']
 
         elif self.slurm_interface == "cli":
+
             # SSH WAY
             print("coucou2")
             # USER ID MAPPING
             # Decode bearer token so we know the user mail for id mapping
             user_mail = jwt.decode(bearer, options={"verify_signature": False})['email']
             print("coucou4")
-            job_mapped_user, job_mapped_user_private_key = self.user_id_mapping(user_mail, "")
+            job_mapped_user, job_mapped_user_private_key = self.user_id_mapping(user_mail)
             print("coucou5")
+
+            # Store this user in database since it will be needed later
+            # In case of K8S, it would be stored in a secret
+            jarvice_user = name.split('-')[-1].split('_')[0]
+            if Path(users_mapping_db.yaml).is_file():
+                with open('users_mapping_db.yaml', 'r') as file:
+                    users_mapping_db = yaml.safe_load(file)
+            else:
+                users_mapping_db = {}
+            if not jarvice_user in users_mapping_db:
+                users_mapping_db[jarvice_user] = {}
+            users_mapping_db[jarvice_user]['email'] = user_mail
+            users_mapping_db[jarvice_user]['mapped_user'] = job_mapped_user
+            users_mapping_db[jarvice_user]['ssh_private_key_b64'] = ssh_private_key_b64
+            with open('users_mapping_db.yaml', 'w') as file:
+                yaml.dump(users_mapping_db, file)
+
             job_mapped_user_private_key = b64decode(job_mapped_user_private_key).decode('utf-8')
+
             print("coucou3")
             # ssh to cluster and submit job
             stdout, stderr = self.ssh_as_user(
@@ -916,8 +937,10 @@ EOF
 
         # Slurm objects (best effort)
         self.log.info(f'Garbage collecting job: {jobid}')
-        user_name = name.split('-')[-1].split('_')[0]
-        job_mapped_user, job_mapped_user_private_key = self.user_id_mapping("", user_name)
+        jarvice_user = name.split('-')[-1].split('_')[0]
+        with open('users_mapping_db.yaml', 'r') as file:
+            users_mapping_db = yaml.safe_load(file)
+        job_mapped_user = users_mapping_db[jarvice_user]['mapped_user']
         self.ssh('/bin/sh -c "nohup rm -Rf %s.out %s >/dev/null 2>&1 &"' % (
             self.scratchdir + '/users/' + job_mapped_user + '/' + name,
             self.scratchdir + '/users/' + job_mapped_user + '/jobs/' + jobid))
