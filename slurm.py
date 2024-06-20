@@ -773,7 +773,7 @@ fi
         # Either ssh (and so cli sbatch), which requires id mapping to be properly configured with users encoded ssh private keys
 
         # HTTP WAY
-        if slurm_interface == "http":
+        if self.slurm_interface == "http":
             # Building HTTP request
             try:
             # "script": "#!/bin/bash\\necho 'ZWNobyBoZWxsbyAmJiBob3N0bmFtZSAmJiBlY2hvICRDT0xPUgo=' | base64 -d | srun -K1 --export=ALL -N 1 -n 1 --ntasks-per-node=1 /bin/bash && srun /bin/bash -c 'hostname && sleep 360'",
