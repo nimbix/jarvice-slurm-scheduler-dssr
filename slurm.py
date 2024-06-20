@@ -17,7 +17,8 @@ class baremetal_connector(object):
         logging.basicConfig(encoding='utf-8', level=logging.DEBUG)
 
         # Load configuration from YAML file
-        self.connector_configuration = yaml.safe_load("connector_configuration.yaml")
+        with open('connector_configuration.yaml', 'r') as file:
+            self.connector_configuration = yaml.safe_load(file)
         self.slurm_interface = self.connector_configuration['slurm_interface']
 
         self.baremetal_executor = os.getenv('JARVICE_BAREMETAL_EXECUTOR')
