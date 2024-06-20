@@ -6,7 +6,7 @@ import urllib.parse
 import paramiko
 from base64 import b64encode, b64decode
 import logging
-
+import yaml
 
 class baremetal_connector(object):
 
@@ -115,6 +115,16 @@ class baremetal_connector(object):
             self.log.warning(' Please check ssh parameters.')
         self.log.info('\n Init done. Entering main loop.')
 
+    def users_mapping(self, username):
+        
+        umapping = yaml.safe_load("users_mapping.yaml")['users_mapping']
+        mapped_username = None
+        for user in umapping:
+            if user["mail"] == username: # TO BE UPDATED ONCE TOKEN HERE
+                mapped_username = user["local_user"]
+
+        return mapped_username
+
     def gc(self):
         """ garbage collection endpoint; fail if cluster not reachable """
         try:
@@ -214,6 +224,21 @@ class baremetal_connector(object):
         #    self.ssh('scancel -s %d %s' % (9 if force else 15, jobid))
         self.log.info(f'Terminating job: {jobid}')
         self.ssh('scancel -f ' + jobid)
+
+#         terminate_cmd = """
+# curl -X DEL {slurmrestd_host}:{slurmrestd_port}/slurm/{slurmrestd_api_version}/job/{jobid} \
+# -H "X-SLURM-USER-NAME:{username}" \
+# -H "X-SLURM-USER-TOKEN:{jwt_token}"
+# """.format(
+#         slurmrestd_host=self.slurmrestd_host,
+#         slurmrestd_port=self.slurmrestd_port,
+#         slurmrestd_api_version=self.slurmrestd_api_version,
+#         jobid=jobid,
+#         username=self.job_mapped_user,
+#         jwt_token=os.getenv('SLURM_JWT')
+#     )
+#         stdout, stderr = self.ssh(terminate_cmd)
+
         return True  # best effort
 
     def online(self, host, status=True, comment=''):
@@ -311,7 +336,7 @@ class baremetal_connector(object):
         return rsp(200)
 
     # Submit a job
-    def submit(self, name, number, nodes, hpc_script, held=False):
+    def submit(self, name, number, nodes, hpc_script, bearer, held=False):
         """ submits a job for scheduling
 
         Input:
@@ -324,10 +349,6 @@ class baremetal_connector(object):
 
         """
         self.log.info(f'Job submittion request for {name}:{number}')
-
-        users_mapping = {
-            "bleveugle":"jarvice"
-        }
 
         # Grab executor script only, and decode it
         hpc_script = b64decode(
@@ -390,7 +411,6 @@ export SCNO_PROXY={JARVICE_BAREMETAL_NO_PROXY}
                     return str(line2search.split("=", 1)[1])
             return None
 
-        print('1')
         self.jobobj_interactive = find_key(hpc_script, "JOBOBJ_INTERACTIVE")
         if self.jobobj_interactive == "False":
             self.jobobj_interactive = bool(False)
@@ -444,7 +464,7 @@ export SCNO_PROXY={JARVICE_BAREMETAL_NO_PROXY}
         print('2')
 
         # USER ID MAPPING
-        self.job_mapped_user = users_mapping[self.jobobj_user]
+        self.job_mapped_user = self.users_mapping(self.jobobj_user)
 
         # determine appropriate Docker secret
         def get_reg(url):
@@ -622,9 +642,6 @@ export JOB_GPUS_PER_NODE=$SLURM_GPUS_PER_NODE
     """
 
         srun_start = r"""#!/bin/bash
-export SV=true
-set -x
-
 echo "Hello from $(hostname)"
 echo "Entering parallel region"
 
@@ -779,10 +796,10 @@ fi
     }}
 }}
 """.format(
-    job_name=name,
-    encoded_script=encoded_script,
-    scratchdir=self.scratchdir,
-    username=self.job_mapped_user
+        job_name=name,
+        encoded_script=encoded_script,
+        scratchdir=self.scratchdir,
+        username=self.job_mapped_user
     )
 
 #         "tres_per_node":"gres/gpu=1",
@@ -802,17 +819,12 @@ EOF
         slurmrestd_api_version=self.slurmrestd_api_version,
         job_json=job_json,
         username=self.job_mapped_user,
-        jwt_token=os.getenv('SLURM_JWT')
+        jwt_token=bearer # os.getenv('SLURM_JWT')
     )
+            print(submit_cmd)
         except Exception as e:
-            print('crash ' + str(e))
-        print("COUCOU1")
-        print(submit_cmd)
-        print("COUCOU2")
+            print('Could not generate job json or cmd: ' + str(e))
         stdout, stderr = self.ssh(submit_cmd)
-        print("COUCOU3")
-        print(stdout)
-        print(stderr)
 
         if not stdout:
             # self.pmgr.unreserve(number)  --> BEN

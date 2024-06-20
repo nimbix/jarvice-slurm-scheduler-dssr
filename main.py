@@ -41,6 +41,7 @@ def submit():
         name = args["name"]
         number = args["number"]
         nodes = args["nodes"]
+        bearer = args["bearer"]
     except Exception as e:
         # In case of errors, these are often cryptique in this section
         # We want to pass a max of infos to ease debug.
@@ -51,7 +52,7 @@ def submit():
     print('ok')
     try:
         return jsonify(
-            baremetal_connector.submit(name, number, nodes, hpc_script)), 200
+            baremetal_connector.submit(name, number, nodes, hpc_script, bearer)), 200
     except Exception as e:
         return "Failed to submit job." + str(e), 500
 
