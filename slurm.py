@@ -207,8 +207,9 @@ class baremetal_connector(object):
 
         # If we reach that point, we got a state
         # fetch and clean output - last 10k lines only
+        user_name = name.split('-')[-1:].split('_')[0]
         stdout, stderr = self.ssh(
-            'tail -10000 %s.out' % (self.scratchdir + '.jarvice/' + name))
+            'tail -10000 %s.out' % (self.scratchdir + '/users/' + user_name + '/' + name))
         outs = [stdout,
                 '<< termination state: %s -- see STDOUT for job errors >>' %
                 state]
@@ -331,14 +332,15 @@ class baremetal_connector(object):
             readyjson = {'about': '', 'help': '', 'url': '', 'actions': {}}
             return rsp_json(200, readyjson)
         elif method == 'tail':
+            user_name = jobname.split('-')[-1:].split('_')[0]
             try:
                 lines = int(qs['lines'][0])
                 assert (lines > 1)
             except Exception:
                 lines = 100
             stdout, stderr = self.ssh(
-                'tail -%d %s.jarvice/%s.out' % (lines,
-                                                self.scratchdir, jobname))
+                'tail -%d %s/%s.out' % (lines,
+                                                self.scratchdir + '/users/' + user_name, jobname))
             return rsp(200, content_type='text/plain',
                        content=stdout) if stdout else rsp(404)
 
@@ -909,8 +911,8 @@ EOF
         self.log.info(f'Garbage collecting job: {jobid}')
         user_name = name.split('-')[-1:].split('_')[0]
         self.ssh('/bin/sh -c "nohup rm -Rf %s.out %s >/dev/null 2>&1 &"' % (
-            self.scratchdir + '.jarvice/' + name,
-            self.scratchdir + '.jarvice/jobs/' + jobid))
+            self.scratchdir + '/users/' + user_name + '/' + name,
+            self.scratchdir + '/users/' + user_name + '/jobs/' + jobid))
 
     def squeue(self, user=None, states=None):
         """ runs squeue (with optional filters) and returns parsed list """
