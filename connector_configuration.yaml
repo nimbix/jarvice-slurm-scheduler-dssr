@@ -1,4 +1,3 @@
----
 slurm_interface: cli # can be either cli or http
 users_mapping:
   - user: Benoit Leveugle

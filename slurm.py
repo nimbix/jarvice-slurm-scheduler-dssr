@@ -378,7 +378,7 @@ export SINGULARITYENV_JARVICE_SSH_PORT={JARVICE_SSH_PORT}
 export JARVICE_SINGULARITY_TMPDIR={JARVICE_SINGULARITY_TMPDIR}
 
 # User
-export JOB_LOCAL_USER={JOB_LOCAL_USER}
+export JOB_LOCAL_USER=$USER
 
 # Singularity and images parameters
 export JARVICE_SINGULARITY_OVERLAY_SIZE={JARVICE_SINGULARITY_OVERLAY_SIZE}
@@ -603,6 +603,7 @@ export SCNO_PROXY={JARVICE_BAREMETAL_NO_PROXY}
         ssh_port = 2227
         svc_port = 2228
 
+        self.log.info("Building script")
         script = hpc_script.format(
             DOWNSTREAM_PARAMETERS=connection_string.format(
                 JARVICE_BAREMETAL_SCRATCH_DIR=self.scratchdir,
@@ -624,9 +625,7 @@ export SCNO_PROXY={JARVICE_BAREMETAL_NO_PROXY}
                 JARVICE_BAREMETAL_HTTPS_PROXY=self.baremetal_https_proxy,
                 JARVICE_BAREMETAL_NO_PROXY=self.baremetal_no_proxy,
                 JARVICE_CMD=jarvice_cmd,
-                SINGULARITY_VERBOSE=self.singularity_verbose,
-                JOB_LOCAL_USER=self.job_mapped_user
-            )
+                SINGULARITY_VERBOSE=self.singularity_verbose            )
         )
 
         # Now enter slurm special part
@@ -687,6 +686,8 @@ fi
     """
 
         script = srun_start + dynamic_scheduler_mapping + script + srun_end
+
+        self.log.info("Preparing slurm job settings")
 
         # Now build sbatch parameters
 
