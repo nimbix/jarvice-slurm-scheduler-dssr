@@ -207,7 +207,7 @@ class baremetal_connector(object):
 
         # If we reach that point, we got a state
         # fetch and clean output - last 10k lines only
-        user_name = str(name).split('-')[-1:].split('_')[0]
+        user_name = name.split('-')[-1].split('_')[0]
         stdout, stderr = self.ssh(
             'tail -10000 %s.out' % (self.scratchdir + '/users/' + user_name + '/' + name))
         outs = [stdout,
@@ -332,7 +332,7 @@ class baremetal_connector(object):
             readyjson = {'about': '', 'help': '', 'url': '', 'actions': {}}
             return rsp_json(200, readyjson)
         elif method == 'tail':
-            user_name = jobname.split('-')[-1:].split('_')[0]
+            user_name = jobname.split('-')[-1].split('_')[0]
             try:
                 lines = int(qs['lines'][0])
                 assert (lines > 1)
@@ -909,7 +909,7 @@ EOF
 
         # Slurm objects (best effort)
         self.log.info(f'Garbage collecting job: {jobid}')
-        user_name = name.split('-')[-1:].split('_')[0]
+        user_name = name.split('-')[-1].split('_')[0]
         self.ssh('/bin/sh -c "nohup rm -Rf %s.out %s >/dev/null 2>&1 &"' % (
             self.scratchdir + '/users/' + user_name + '/' + name,
             self.scratchdir + '/users/' + user_name + '/jobs/' + jobid))
