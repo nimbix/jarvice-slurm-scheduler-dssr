@@ -85,7 +85,7 @@ def exitstatus():
 
     try:
         args = json.loads(request.form.get("args"))
-        name = args["name"]
+        name = str(args["name"])
         number = args["number"]
         jobid = args["jobid"]
     except Exception as e:

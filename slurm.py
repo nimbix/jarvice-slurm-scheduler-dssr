@@ -207,7 +207,7 @@ class baremetal_connector(object):
 
         # If we reach that point, we got a state
         # fetch and clean output - last 10k lines only
-        user_name = name.split('-')[-1:].split('_')[0]
+        user_name = str(name).split('-')[-1:].split('_')[0]
         stdout, stderr = self.ssh(
             'tail -10000 %s.out' % (self.scratchdir + '/users/' + user_name + '/' + name))
         outs = [stdout,
