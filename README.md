@@ -339,7 +339,7 @@ Please adapt this to your target system (could be bare metal script, systemd, K8
 
 #### Users ID mapping
 
-If `JARVICE_SLURM_INTERFACE="cli"`, ID mapping will be activated, and the code expect file 'users_id_mapping.yaml' to be present in the same folder.
+If `JARVICE_SLURM_INTERFACE="cli"`, ID mapping will be activated, and the code expect file `users_id_mapping_configuration.yaml` to be present in the same folder.
 
 This file must contain a list of users to map, between upstream Keycloack user, identified by an associated email, and the Slurm local user on the bare metal cluster.
 An SSH private key must also be present to allow the downstream scheduler to ssh to the cluster on behalf of this user to submit jobs.
