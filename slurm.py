@@ -776,13 +776,14 @@ fi
         self.log.info(f'Submitting job {name}:{number} via sbatch')
         self.log.debug('Submitted script:')
         self.log.debug('--------------------------------------------------')
-        self.log.debug(script)
+        #self.log.debug(script)
         self.log.debug('--------------------------------------------------')
+
 
         # Here 2 methods
         # Either REST HTTP, which requires full bearer token, but does not allow idmapping
         # Either ssh (and so cli sbatch), which requires id mapping to be properly configured with users encoded ssh private keys
-        print('coucou')
+        self.log.info('coucou')
         # HTTP WAY
         if self.slurm_interface == "http":
             # Building HTTP request
@@ -863,18 +864,19 @@ EOF
         elif self.slurm_interface == "cli":
 
             # SSH WAY
-            print("coucou2")
+            self.log.info("coucou2")
             # USER ID MAPPING
             # Decode bearer token so we know the user mail for id mapping
             user_mail = jwt.decode(bearer, options={"verify_signature": False})['email']
-            print("coucou4")
+            self.log.info("coucou4")
             job_mapped_user, job_mapped_user_private_key = self.user_id_mapping(user_mail)
-            print("coucou5")
+            self.log.info("coucou5")
 
             # Store this user in database since it will be needed later
             # In case of K8S, it would be stored in a secret
             jarvice_user = name.split('-')[-1].split('_')[0]
-            if Path(users_mapping_db.yaml).is_file():
+
+            if Path('users_mapping_db.yaml').is_file():
                 with open('users_mapping_db.yaml', 'r') as file:
                     users_mapping_db = yaml.safe_load(file)
             else:
@@ -883,13 +885,13 @@ EOF
                 users_mapping_db[jarvice_user] = {}
             users_mapping_db[jarvice_user]['email'] = user_mail
             users_mapping_db[jarvice_user]['mapped_user'] = job_mapped_user
-            users_mapping_db[jarvice_user]['ssh_private_key_b64'] = ssh_private_key_b64
+            users_mapping_db[jarvice_user]['ssh_private_key_b64'] = job_mapped_user_private_key
             with open('users_mapping_db.yaml', 'w') as file:
                 yaml.dump(users_mapping_db, file)
 
             job_mapped_user_private_key = b64decode(job_mapped_user_private_key).decode('utf-8')
 
-            print("coucou3")
+            self.log.info("coucou3")
             # ssh to cluster and submit job
             stdout, stderr = self.ssh_as_user(
                 job_mapped_user,
@@ -907,7 +909,7 @@ EOF
                     name, jobobj_cores * nodes, nodes, '-H' if held else '',
                     f'-L {licenses}' if licenses else ''),
                 instr=script)
-            print("coucou6")
+            self.log.info("coucou6")
             if not stdout:
                 # self.pmgr.unreserve(number)  --> BEN
                 raise Exception(
