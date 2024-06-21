@@ -250,7 +250,7 @@ def requests(path):
 # ## RUNNING SERVER
 
 if __name__ == "__main__":
-    #from waitress import serve
+    from waitress import serve
 
     print("Now running as server")
     print("URLs map:")
