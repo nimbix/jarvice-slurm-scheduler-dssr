@@ -1,0 +1,6 @@
+users_id_mapping:
+  - user: Benoit Leveugle
+    jarvice_user: bleveugleb
+    mail: benoit.leveugle@atos.net
+    mapped_user: kirby
+    ssh_private_key_b64: "XXXXXXXXXXX"

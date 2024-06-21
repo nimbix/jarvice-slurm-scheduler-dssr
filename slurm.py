@@ -25,10 +25,10 @@ class baremetal_connector(object):
         logging.basicConfig(encoding='utf-8', level=logging.DEBUG)
 
         # Load configuration from YAML file
-        with open('connector_configuration.yaml', 'r') as file:
-            self.connector_configuration = yaml.safe_load(file)
-        self.slurm_interface = self.connector_configuration['slurm_interface']
+        with open('users_id_mapping_configuration.yaml', 'r') as file:
+            self.users_id_mapping_configuration = yaml.safe_load(file)
 
+        self.slurm_interface = os.getenv('JARVICE_SLURM_INTERFACE')
         self.baremetal_executor = os.getenv('JARVICE_BAREMETAL_EXECUTOR')
 
         # ############## Images handling ###############
@@ -136,7 +136,7 @@ class baremetal_connector(object):
         """
         mapped_user = None
         mapped_user_pkey = None
-        for user in self.connector_configuration['users_id_mapping']:
+        for user in self.users_id_mapping_configuration['users_id_mapping']:
             if user["mail"] == user_mail:
                 mapped_user = user["mapped_user"]
                 mapped_user_pkey = user["ssh_private_key_b64"]

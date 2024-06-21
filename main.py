@@ -1,5 +1,13 @@
 #!/usr/bin/env python3
 
+#
+# NIMBIX OSS
+# ----------
+#
+# Copyright (c) 2024 Nimbix, Inc.
+#
+
+
 from flask import Flask, request, jsonify
 import json
 import importlib
@@ -248,10 +256,10 @@ if __name__ == "__main__":
     print("URLs map:")
     print(app.url_map)
 
-    #waitress_port = int(os.getenv('WAITRESS_PORT', "5000"))
-    #waitress_bind_address = os.getenv('WAITRESS_BIND_ADDRESS', "0.0.0.0")
+    waitress_port = int(os.getenv('WAITRESS_PORT', "5000"))
+    waitress_bind_address = os.getenv('WAITRESS_BIND_ADDRESS', "0.0.0.0")
 
-    #serve(app, host=waitress_bind_address, port=waitress_port)
+    serve(app, host=waitress_bind_address, port=waitress_port)
 
-    app.run(host="0.0.0.0", port=5000)
+    # app.run(host="0.0.0.0", port=5000)
     quit()
