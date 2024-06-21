@@ -19,12 +19,12 @@ Kubernetes pods management natively used in Jarvice is replaced here by usage of
 
 ## Requirements
 
-This service can run on any kind of system, even Microsoft Windows.
+This service can run on any kind of system, even Microsoft Windows, as long as a recent Python 3 is setup.
 
 Needed pip3 dependencies:
 
 ```
-pip3 install json waitress flask paramiko yaml
+pip3 install json waitress flask paramiko yaml jwt
 ```
 
 Some useful resources for developers:
@@ -45,39 +45,25 @@ https://www.paramiko.org/
                    ├─────────────────────────────────────┘                      
                    │
                    │
-                   │
+              http │
                    │
                    ▼
 (1)     ┌─────────────────────┐
-        │Legacy API           │
+        │    Legacy API       │
         │                     │
-        │                     │
-        │                     │
-        │                     │
-        └──────────┬──────────┘
-                   │           
-                   │           
-                   └───────────┐
-                               │
-                               │
-                               ▼
-(4)                ┌───────────────────────────────────────┐                    
-                   │      Main                             │                    
-                   │                                       │                    
-                   │ Flask http endpoints                  │                    
-                   │                                       │                    
-                   └──────────────────┬────────────────────┘                    
-                                      │                                         
-                                      │                                         
-                   ┌──────────────────┘
-                   │
-                   │
-                   ▼
-(2)       ┌──────────────────┐
-          │   Baremetal      │
-          │    connector     │
-          │                  │
-          └────────┬─────────┘
+        └──────────┬──────────┘      
+(4)     ┌───────────────────────────────────────┐                    
+        │      Main                             │                    
+        │                                       │                    
+        │ Flask http endpoints                  │                    
+        │                                       │                    
+        └──────────────────┬────────────────────┘                    
+(2)               ┌──────────────────┐
+                  │   Baremetal      │
+                  │    connector     │
+                  │                  │
+                  └────────┬─────────┘
+                   ┌───────┘
                    │
                    │
                ssh │
@@ -113,21 +99,19 @@ The following parameters are available for the singularity executor:
 * `JARVICE_SINGULARITY_OVERLAY_SIZE`: default `600`. Define size on Mb of the overlay image during runtime.
 * `JARVICE_SINGULARITY_VERBOSE`: default `false`. If set to `true`, this will enable verbose mode on sigularity calls.
 
-## Connectors
-
-### Slurm connector
+## Slurm connector
 
 The Slurm connector is for now the default one. It is able to submit jobs to a bare metal slurm cluster, using both CLI and REST HTTP interfaces of slurm.
 
-#### Slurm cluster setup
+### Slurm cluster setup
 
-##### The Jarvice user
+#### The Jarvice user
 
 A specific user must be created on the target cluster. Default name is `jarvice`. This user acts as the ssh entry point to the cluster, and will be used to manage jobs (submitting, releasing, terminating, grabbing logs, etc.).
 
 The user MUST have the same uid on the whole cluster, and so should be configured like any other traditional unpriviledged users (LDAP, etc).
 
-##### SSH keys to connect to the cluster
+#### SSH keys to connect to the cluster
 
 Once user has been created, an ssh key couple is needed. Generate a new key pair, without passphrase:
 
@@ -139,7 +123,7 @@ Grab `jarvice_id_ed25519` content, this will be needed as `JARVICE_SLURM_SSH_PKE
 
 Then grab `jarvice_id_ed25519.pub` content, and add it to authorized_keys of the Jarvice user on the slurm cluster.
 
-##### Accounts coordinator
+#### Accounts coordinator
 
 The Jarvice user `jarvice` must be set **coordinator** of every accounts that contains users using Jarvice portal. This allows the Jarvice user to see associated accounts jobs (even if `PrivateData` key is set in slurm.conf), and release or terminate them.
 
@@ -157,7 +141,7 @@ sacctmgr add coordinator account=pc names=jarvice cluster=valhalla
 
 Now jarvice user is able to see jobs of all associated accounts users, so in this example, kirby, mario and dovahkiin.
 
-##### Scratch structure
+#### Scratch structure
 
 A scratch must be setup for:
 
@@ -228,7 +212,7 @@ default:other::---
 Repeat this for each users so that each Jarvice user posses her/his own Jarvice scratch folder, also read/writable by `jarvice` user.
 The `/jxe_scratch` directory will have to be set later as `JARVICE_BAREMETAL_SCRATCH_DIR` environment variable of the downstream scheduler.
 
-#### Downstream environment variables
+### Downstream environment variables
 
 Now that everything is configured on the slurm bare metal cluster, and that the `jarvice` user is created along with all the requirements, it is time to setup the downstream scheduler and launch it.
 

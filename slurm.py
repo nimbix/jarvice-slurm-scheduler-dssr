@@ -1,13 +1,20 @@
+#
+# NIMBIX OSS
+# ----------
+#
+# Copyright (c) 2024 Nimbix, Inc.
+#
+
 import os
 import json
 import io
 import shlex
 import urllib.parse
 import paramiko
-from base64 import b64encode, b64decode
 import logging
 import yaml
 import jwt
+from base64 import b64encode, b64decode
 from pathlib import Path
 
 class baremetal_connector(object):
@@ -85,13 +92,13 @@ class baremetal_connector(object):
         self.log.info('|-- SSH connection to target cluster:')
         self.log.info(f'|     host: {self.ssh_host}')
         self.log.info(f'|     port: {self.ssh_port}')
-        self.log.info(f'|     user: {self.ssh_user}')
-        self.log.info('|-- HTTP API connection to target slurmrestd:')
+        self.log.info(f'|     jarvice user: {self.ssh_user}')
+        self.log.info('|-- HTTP API connection to target slurmrestd (if relevant):')
         self.log.info(f'|     host: {self.slurmrestd_host}')
         self.log.info(f'|     port: {self.slurmrestd_port}')
         self.log.info(f'|     api_version: {self.slurmrestd_api_version}')
         self.log.info('|-- Script environment:')
-        self.log.info(f'|     scratch dir: {self.scratchdir}')
+        self.log.info(f'|     Jobs scratch dir: {self.scratchdir}')
         self.log.info(f'|     http_proxy: {self.baremetal_http_proxy}')
         self.log.info(f'|     https_proxy: {self.baremetal_https_proxy}')
         self.log.info(f'|     no_proxy: {self.baremetal_no_proxy}')
@@ -665,7 +672,7 @@ echo "Entering parallel region"
 exec 5>&1
 FF=$(srun -K1 --export=ALL -N $SLURM_NNODES \
 -n $SLURM_NNODES --ntasks-per-node=1 /bin/bash -c '
-set -x
+
 
     """
 
