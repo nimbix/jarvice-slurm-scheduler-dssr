@@ -790,7 +790,6 @@ fi
         # Here 2 methods
         # Either REST HTTP, which requires full bearer token, but does not allow idmapping
         # Either ssh (and so cli sbatch), which requires id mapping to be properly configured with users encoded ssh private keys
-        self.log.info('coucou')
         # HTTP WAY
         if self.slurm_interface == "http":
             # Building HTTP request
@@ -871,13 +870,10 @@ EOF
         elif self.slurm_interface == "cli":
 
             # SSH WAY
-            self.log.info("coucou2")
             # USER ID MAPPING
             # Decode bearer token so we know the user mail for id mapping
             user_mail = jwt.decode(bearer, options={"verify_signature": False})['email']
-            self.log.info("coucou4")
             job_mapped_user, job_mapped_user_private_key = self.user_id_mapping(user_mail)
-            self.log.info("coucou5")
 
             # Store this user in database since it will be needed later
             # In case of K8S, it would be stored in a secret
@@ -898,7 +894,6 @@ EOF
 
             job_mapped_user_private_key = b64decode(job_mapped_user_private_key).decode('utf-8')
 
-            self.log.info("coucou3")
             # ssh to cluster and submit job
             stdout, stderr = self.ssh_as_user(
                 job_mapped_user,
@@ -916,7 +911,6 @@ EOF
                     name, jobobj_cores * nodes, nodes, '-H' if held else '',
                     f'-L {licenses}' if licenses else ''),
                 instr=script)
-            self.log.info("coucou6")
             if not stdout:
                 # self.pmgr.unreserve(number)  --> BEN
                 raise Exception(
