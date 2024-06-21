@@ -1,14 +1,24 @@
 #!/usr/bin/env python3
 
+#
+# NIMBIX OSS
+# ----------
+#
+# Copyright (c) 2024 Nimbix, Inc.
+#
+
+
 from flask import Flask, request, jsonify
 import json
-import baremetal
+import importlib
 import os
 import sys
 
 app = Flask(__name__)
 
 # Load the baremetal connector
+
+baremetal = importlib.import_module(os.getenv('JARVICE_BAREMETAL_CONNECTOR'))
 baremetal_connector = baremetal.baremetal_connector()
 
 # ################## END POINTS - LEGACY
@@ -39,6 +49,7 @@ def submit():
         name = args["name"]
         number = args["number"]
         nodes = args["nodes"]
+        bearer = args["bearer"]
     except Exception as e:
         # In case of errors, these are often cryptique in this section
         # We want to pass a max of infos to ease debug.
@@ -46,12 +57,16 @@ def submit():
         fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
         print(e, exc_type, fname, exc_tb.tb_lineno)
         return "Could not load arguments, check your passed JSON data.", 500
-
+    print('ok')
     try:
         return jsonify(
-            baremetal_connector.submit(name, number, nodes, hpc_script)), 200
+            baremetal_connector.submit(name, number, nodes, hpc_script, bearer)), 200
     except Exception as e:
-        return "Failed to submit job." + str(e), 500
+        exc_type, exc_obj, exc_tb = sys.exc_info()
+        fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+        print(e, exc_type, fname, exc_tb.tb_lineno)
+        return "Could not load arguments, check your passed JSON data.", 500
+#        return "Failed to submit job." + str(e), 500
 
 
 @app.route("/nodes", methods=['GET'])
@@ -246,5 +261,5 @@ if __name__ == "__main__":
 
     serve(app, host=waitress_bind_address, port=waitress_port)
 
-    #app.run(debug=flask_debug, host=flask_bind_address, port=flask_port)
+    # app.run(host="0.0.0.0", port=5000)
     quit()
