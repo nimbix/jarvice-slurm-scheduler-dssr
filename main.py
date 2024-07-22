@@ -84,7 +84,7 @@ def nodes():
 # /running
 # send to upstream the list of jobids running
 # Example : 
-# - ['12345', '12367'], 200 if ok, can even be an empty list [], 200 if no jobs are running
+# - [(name, jobid), ...], 200 if ok, can even be an empty list [], 200 if no jobs are running
 # - 500 if something failed
 @app.route("/running", methods=['GET'])
 def running():
@@ -98,7 +98,7 @@ def running():
 # send to upstream the list of jobids queued
 # same concept than /running
 # Example : 
-# - ['12345', '12367'], 200 if ok, can even be an empty list [], 200 if no jobs are queued
+# - [(name, jobid), ...], 200 if ok, can even be an empty list [], 200 if no jobs are queued
 # - 500 if something failed
 @app.route("/queued", methods=['GET'])
 def queued():
