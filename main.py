@@ -253,16 +253,16 @@ def requests(path):
 # ## RUNNING SERVER
 
 if __name__ == "__main__":
-    from waitress import serve
+#    from waitress import serve
 
     print("Now running as server")
     print("URLs map:")
     print(app.url_map)
 
-    waitress_port = int(os.getenv('WAITRESS_PORT', "5000"))
-    waitress_bind_address = os.getenv('WAITRESS_BIND_ADDRESS', "0.0.0.0")
+ #   waitress_port = int(os.getenv('WAITRESS_PORT', "5000"))
+ #   waitress_bind_address = os.getenv('WAITRESS_BIND_ADDRESS', "0.0.0.0")
 
-    serve(app, host=waitress_bind_address, port=waitress_port)
+ #   serve(app, host=waitress_bind_address, port=waitress_port)
 
-    # app.run(host="0.0.0.0", port=5000)
+    app.run(host="0.0.0.0", port=5000, debug=True)
     quit()

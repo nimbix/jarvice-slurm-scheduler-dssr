@@ -92,7 +92,7 @@ class baremetal_connector(object):
                 except sqlite3.Error as e:
                     raise Exception(e) 
         # Ok, should the job be considered COMPLETED or FAILED ?
-        if random.randint(0, 100) < job_failing_percent :
+        if random.randint(0, 100) < self.job_failing_percent :
             rc = 1
             state = "ERROR"
         else:
