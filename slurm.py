@@ -24,12 +24,16 @@ class baremetal_connector(object):
         self.log = logging.getLogger(__name__)
         logging.basicConfig(encoding='utf-8', level=logging.DEBUG)
 
-        # Load configuration from YAML file
-        with open('users_id_mapping_configuration.yaml', 'r') as file:
-            self.users_id_mapping_configuration = yaml.safe_load(file)
+        self.slurm_interface = os.getenv('JARVICE_SLURM_INTERFACE', 'cli')
+        self.baremetal_executor = os.getenv('JARVICE_BAREMETAL_EXECUTOR', 'singularity')
 
-        self.slurm_interface = os.getenv('JARVICE_SLURM_INTERFACE')
-        self.baremetal_executor = os.getenv('JARVICE_BAREMETAL_EXECUTOR')
+        if self.slurm_interface == 'cli':
+            try:
+              # Load configuration from YAML file
+                with open('users_id_mapping_configuration.yaml', 'r') as file:
+                    self.users_id_mapping_configuration = yaml.safe_load(file)
+            except Exception as e:
+                raise Exception('Cloud not read users id mapping file:' + str(e))
 
         # ############## Images handling ###############
         # Docker credentials to grab Jarvice images
@@ -129,9 +133,11 @@ class baremetal_connector(object):
             self.log.warning(' Please check ssh parameters.')
         self.log.info('\n Init done. Entering main loop.')
 
+
     def user_id_mapping(self, user_mail):
         """
         Returns mapped username, from main configuration.
+        This is based on user email, not user name.
         None if not found.
         """
         mapped_user = None
@@ -143,6 +149,25 @@ class baremetal_connector(object):
                 break
 
         return mapped_user, mapped_user_pkey
+
+
+    def user_id_mapping_from_cache(self, jobname):
+        """
+        Returns mapped username, from cache.
+        """
+        # Jarvice user is stored inside job name, extract it
+        jarvice_user = jobname.split('-')[-1].split('_')[0]
+
+        # Obtain mapped user and ssh key from cache
+        with open('users_mapping_db.yaml', 'r') as file:
+            users_mapping_db = yaml.safe_load(file)
+
+        job_mapped_user = users_mapping_db[jarvice_user]['mapped_user']
+        job_mapped_user_private_key[jarvice_user]['ssh_private_key_b64']
+        job_mapped_user_private_key = b64decode(job_mapped_user_private_key).decode('utf-8')
+
+        return job_mapped_user, job_mapped_user_private_key
+
 
     def gc(self):
         """ garbage collection endpoint; fail if cluster not reachable """
@@ -216,13 +241,14 @@ class baremetal_connector(object):
 
         # If we reach that point, we got a state
         # fetch and clean output - last 10k lines only
-        jarvice_user = name.split('-')[-1].split('_')[0]
-        with open('users_mapping_db.yaml', 'r') as file:
-            users_mapping_db = yaml.safe_load(file)
-        job_mapped_user = users_mapping_db[jarvice_user]['mapped_user']
 
-        stdout, stderr = self.ssh(
-            'tail -10000 %s.out' % (self.scratchdir + '/users/' + job_mapped_user + '/' + name))
+        job_mapped_user, job_mapped_user_private_key = user_id_mapping_from_cache(name)
+
+        stdout, stderr = self.ssh_as_user(
+            job_mapped_user,
+            job_mapped_user_private_key,
+            'tail -10000 %s.out' % (self.scratchdir + '.jarvice/' + name)
+        )
         outs = [stdout,
                 '<< termination state: %s -- see STDOUT for job errors >>' %
                 state]
@@ -247,7 +273,14 @@ class baremetal_connector(object):
         # regardless of force - was:
         #    self.ssh('scancel -s %d %s' % (9 if force else 15, jobid))
         self.log.info(f'Terminating job: {jobid}')
-        self.ssh('scancel -f ' + jobid)
+
+        job_mapped_user, job_mapped_user_private_key = user_id_mapping_from_cache(name)
+
+        self.ssh_as_user(
+            job_mapped_user,
+            job_mapped_user_private_key,
+            'scancel -f ' + jobid
+        )
 
 #         terminate_cmd = """
 # curl -X DEL {slurmrestd_host}:{slurmrestd_port}/slurm/{slurmrestd_api_version}/job/{jobid} \
@@ -271,7 +304,14 @@ class baremetal_connector(object):
 
     def release(self, name, number, jobid):
         """ releases a held job """
-        stdout, stderr = self.ssh(f'scontrol release {jobid}')
+
+        job_mapped_user, job_mapped_user_private_key = user_id_mapping_from_cache(name)
+
+        stdout, stderr = self.ssh_as_user(
+            job_mapped_user,
+            job_mapped_user_private_key,
+            f'scontrol release {jobid}'
+        )
         if stderr:
             raise Exception(f'Releasing job failed: {stderr}')
         return True  # Best effort
@@ -280,7 +320,13 @@ class baremetal_connector(object):
         """ returns list of events associated with job """
         # what's most useful to the admin here is the scontrol job output;
         # while not exactly events, it can show what's happening with a job
-        stdout, stderr = self.ssh(f'scontrol show job {jobid}')
+
+        job_mapped_user, job_mapped_user_private_key = user_id_mapping_from_cache(name)
+
+        stdout, stderr = self.ssh_as_user(
+            job_mapped_user,
+            job_mapped_user_private_key,f'scontrol show job {jobid}'
+        )
         if not stdout:
             raise Exception(f'squeue failed: {stderr}')
         return stdout
@@ -328,10 +374,6 @@ class baremetal_connector(object):
         except Exception:
             self.log.info('path decode failed')
             return rsp(400)
-        self.log.debug("jobname " + jobname)
-        self.log.debug("jobnum " + jobnum)
-        self.log.debug("jobid " + jobid)
-        self.log.debug("method " + method)
 
         # methods
         if method == 'ping':
@@ -345,18 +387,22 @@ class baremetal_connector(object):
             readyjson = {'about': '', 'help': '', 'url': '', 'actions': {}}
             return rsp_json(200, readyjson)
         elif method == 'tail':
-            jarvice_user = jobname.split('-')[-1].split('_')[0]
-            with open('users_mapping_db.yaml', 'r') as file:
-                users_mapping_db = yaml.safe_load(file)
-            job_mapped_user = users_mapping_db[jarvice_user]['mapped_user']
+
+            job_mapped_user, job_mapped_user_private_key = user_id_mapping_from_cache(jobname)
+
             try:
                 lines = int(qs['lines'][0])
                 assert (lines > 1)
             except Exception:
                 lines = 100
-            stdout, stderr = self.ssh(
-                'tail -%d %s/%s.out' % (lines,
-                                                self.scratchdir + '/users/' + job_mapped_user, jobname))
+            stdout, stderr = self.ssh_as_user(
+                job_mapped_user,
+                job_mapped_user_private_key,
+                'tail -%d %s.jarvice/%s.out' % (
+                    lines,
+                    self.scratchdir, jobname
+                )
+            )
             return rsp(200, content_type='text/plain',
                        content=stdout) if stdout else rsp(404)
 
@@ -790,7 +836,7 @@ fi
         # Here 2 methods
         # Either REST HTTP, which requires full bearer token, but does not allow idmapping
         # Either ssh (and so cli sbatch), which requires id mapping to be properly configured with users encoded ssh private keys
-        # HTTP WAY
+        # HTTP WAY - THIS IS ONLY A POC !!!
         if self.slurm_interface == "http":
             # Building HTTP request
             try:
@@ -876,9 +922,14 @@ EOF
             job_mapped_user, job_mapped_user_private_key = self.user_id_mapping(user_mail)
 
             # Store this user in database since it will be needed later
-            # In case of K8S, it would be stored in a secret
+            # Reason is: bearer token is only passed once, and we still need this mapping for later.
+
+            # Jarvice user is stored inside job name, extract it
             jarvice_user = name.split('-')[-1].split('_')[0]
 
+            # Now update local cache
+            # We use YAML now, but a better approach would be to use sqlite DB.
+            # Important note: in case of K8S, we should use a secret, so that this is shared between replicas.
             if Path('users_mapping_db.yaml').is_file():
                 with open('users_mapping_db.yaml', 'r') as file:
                     users_mapping_db = yaml.safe_load(file)
@@ -933,20 +984,28 @@ EOF
 
     def gc_job(self, name, number, jobid, cancel=False):
         """ garbage collects slurm and k8s objects for a single job """
+
+        job_mapped_user, job_mapped_user_private_key = user_id_mapping_from_cache(name)
+
         # cancel Slurm job if asked
         if cancel:
             self.log.info(f'Cancelling job: {jobid}')
-            self.ssh('scancel -f ' + jobid)
+            self.ssh_as_user(
+                job_mapped_user,
+                job_mapped_user_private_key,
+                'scancel -f ' + jobid
+            )
 
         # Slurm objects (best effort)
         self.log.info(f'Garbage collecting job: {jobid}')
-        jarvice_user = name.split('-')[-1].split('_')[0]
-        with open('users_mapping_db.yaml', 'r') as file:
-            users_mapping_db = yaml.safe_load(file)
-        job_mapped_user = users_mapping_db[jarvice_user]['mapped_user']
-        self.ssh('/bin/sh -c "nohup rm -Rf %s.out %s >/dev/null 2>&1 &"' % (
-            self.scratchdir + '/users/' + job_mapped_user + '/' + name,
-            self.scratchdir + '/users/' + job_mapped_user + '/jobs/' + jobid))
+        self.ssh_as_user(
+                job_mapped_user,
+                job_mapped_user_private_key,
+                '/bin/sh -c "nohup rm -Rf %s.out %s >/dev/null 2>&1 &"' % (
+                    self.scratchdir + '.jarvice/' + name,
+                    self.scratchdir + '.jarvice/jobs/' + jobid
+                )
+        )
 
     def squeue(self, user=None, states=None):
         """ runs squeue (with optional filters) and returns parsed list """
