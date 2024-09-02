@@ -242,7 +242,7 @@ class baremetal_connector(object):
         # If we reach that point, we got a state
         # fetch and clean output - last 10k lines only
 
-        job_mapped_user, job_mapped_user_private_key = user_id_mapping_from_cache(name)
+        job_mapped_user, job_mapped_user_private_key = self.user_id_mapping_from_cache(name)
 
         stdout, stderr = self.ssh_as_user(
             job_mapped_user,
@@ -274,7 +274,7 @@ class baremetal_connector(object):
         #    self.ssh('scancel -s %d %s' % (9 if force else 15, jobid))
         self.log.info(f'Terminating job: {jobid}')
 
-        job_mapped_user, job_mapped_user_private_key = user_id_mapping_from_cache(name)
+        job_mapped_user, job_mapped_user_private_key = self.user_id_mapping_from_cache(name)
 
         self.ssh_as_user(
             job_mapped_user,
@@ -305,7 +305,7 @@ class baremetal_connector(object):
     def release(self, name, number, jobid):
         """ releases a held job """
 
-        job_mapped_user, job_mapped_user_private_key = user_id_mapping_from_cache(name)
+        job_mapped_user, job_mapped_user_private_key = self.user_id_mapping_from_cache(name)
 
         stdout, stderr = self.ssh_as_user(
             job_mapped_user,
@@ -321,7 +321,7 @@ class baremetal_connector(object):
         # what's most useful to the admin here is the scontrol job output;
         # while not exactly events, it can show what's happening with a job
 
-        job_mapped_user, job_mapped_user_private_key = user_id_mapping_from_cache(name)
+        job_mapped_user, job_mapped_user_private_key = self.user_id_mapping_from_cache(name)
 
         stdout, stderr = self.ssh_as_user(
             job_mapped_user,
@@ -388,7 +388,7 @@ class baremetal_connector(object):
             return rsp_json(200, readyjson)
         elif method == 'tail':
 
-            job_mapped_user, job_mapped_user_private_key = user_id_mapping_from_cache(jobname)
+            job_mapped_user, job_mapped_user_private_key = self.user_id_mapping_from_cache(jobname)
 
             try:
                 lines = int(qs['lines'][0])
@@ -918,15 +918,15 @@ EOF
             # SSH WAY
             # USER ID MAPPING
             # Decode bearer token so we know the user mail for id mapping
-            user_mail = jwt.decode(bearer, options={"verify_signature": False})['email']
+            user_mail = "benoit.leveugle@eviden.com" # jwt.decode(bearer, options={"verify_signature": False})['email']
             job_mapped_user, job_mapped_user_private_key = self.user_id_mapping(user_mail)
-
+            print(1)
             # Store this user in database since it will be needed later
             # Reason is: bearer token is only passed once, and we still need this mapping for later.
 
             # Jarvice user is stored inside job name, extract it
             jarvice_user = name.split('-')[-1].split('_')[0]
-
+            print(2)
             # Now update local cache
             # We use YAML now, but a better approach would be to use sqlite DB.
             # Important note: in case of K8S, we should use a secret, so that this is shared between replicas.
@@ -942,15 +942,16 @@ EOF
             users_mapping_db[jarvice_user]['ssh_private_key_b64'] = job_mapped_user_private_key
             with open('users_mapping_db.yaml', 'w') as file:
                 yaml.dump(users_mapping_db, file)
-
+            print(3)
             job_mapped_user_private_key = b64decode(job_mapped_user_private_key).decode('utf-8')
-
+            print(4)
             # ssh to cluster and submit job
             stdout, stderr = self.ssh_as_user(
                 job_mapped_user,
                 job_mapped_user_private_key,
-                'sbatch %s %s %s %s %s %s \
-                    --parsable -J "jarvice_%s" -o "%s/users/%s/%s.out" \
+                'mkdir -p $HOME/.jarvice && \
+                    sbatch %s %s %s %s %s %s \
+                    --parsable -J "jarvice_%s" -o "%s.jarvice/%s.out" \
                     -n %d -N %d %s %s' %
                 ('-p ' + slurm_part if slurm_part else '',
                     '--mem=' + slurm_mem + 'G' if slurm_mem else '',
@@ -958,10 +959,15 @@ EOF
                     '--exclusive' if slurm_exclusive else '',
                     '--time=' + slurm_time if slurm_time else '',
                     sbatch_add_params if sbatch_add_params else '',
-                    name, self.scratchdir, job_mapped_user,
+                    name, self.scratchdir,
                     name, jobobj_cores * nodes, nodes, '-H' if held else '',
                     f'-L {licenses}' if licenses else ''),
                 instr=script)
+            print(script)
+            print(5)
+            print("COUCOU")
+            print(stdout)
+            print(stderr)
             if not stdout:
                 # self.pmgr.unreserve(number)  --> BEN
                 raise Exception(
@@ -985,7 +991,7 @@ EOF
     def gc_job(self, name, number, jobid, cancel=False):
         """ garbage collects slurm and k8s objects for a single job """
 
-        job_mapped_user, job_mapped_user_private_key = user_id_mapping_from_cache(name)
+        job_mapped_user, job_mapped_user_private_key = self.user_id_mapping_from_cache(name)
 
         # cancel Slurm job if asked
         if cancel:

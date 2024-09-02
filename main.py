@@ -68,9 +68,12 @@ def submit():
         number = args["number"]
         nodes = args["nodes"]
         bearer = args["bearer"]
+        print(args)
+        print(bearer)
         return jsonify(
             baremetal_connector.submit(name, number, nodes, hpc_script, bearer)), 200
     except Exception as e:
+        print(report_error(e))
         return jsonify(report_error(e)), 500
 
 
