@@ -61,7 +61,7 @@ def gc():
 # - 500 if something failed
 @app.route("/submit", methods=['POST'])
 def submit():
-    try:
+    # try:
         args = json.loads(request.form.get("args"))
         hpc_script = args['hpc_script']
         name = args["name"]
@@ -72,9 +72,9 @@ def submit():
         print(bearer)
         return jsonify(
             baremetal_connector.submit(name, number, nodes, hpc_script, bearer)), 200
-    except Exception as e:
-        print(report_error(e))
-        return jsonify(report_error(e)), 500
+    # except Exception as e:
+    #     print(report_error(e))
+    #     return jsonify(report_error(e)), 500
 
 
 # /nodes
@@ -91,10 +91,10 @@ def nodes():
 # - 500 if something failed
 @app.route("/running", methods=['GET'])
 def running():
-    try:
+    # try:
         return jsonify(baremetal_connector.running()), 200
-    except Exception as e:
-        return report_error(e), 500
+    # except Exception as e:
+    #     return report_error(e), 500
 
 
 # /queued
@@ -127,16 +127,16 @@ def queued():
 # Important: gc_job (aka cleaning of job files, etc.) must be done at this stage, so existatus MUST garbage collect the job
 @app.route("/exitstatus", methods=['POST'])
 def exitstatus():
-    print('/exitstatus')
+        print('/exitstatus')
 
-    try:
+    # try:
         args = json.loads(request.form.get("args"))
         name = args["name"]
         number = args["number"]
         jobid = args["jobid"]
         return jsonify(baremetal_connector.exitstatus(name, number, jobid)), 200
-    except Exception as e:
-        return report_error(e), 500
+    # except Exception as e:
+    #     return report_error(e), 500
 
 
 # /runstatus
@@ -152,14 +152,14 @@ def exitstatus():
 @app.route("/runstatus", methods=['POST'])
 def runstatus():
     # Dropping rc, not needed for this downstream
-    try:
+    # try:
         args = json.loads(request.form.get("args"))
         name = args["name"]
         number = args["number"]
         jobid = args["jobid"]
         return jsonify(baremetal_connector.runstatus(name, number, jobid)), 200
-    except Exception as e:
-        return report_error(e), 500
+    # except Exception as e:
+    #     return report_error(e), 500
 
 
 # /terminate
@@ -168,14 +168,14 @@ def runstatus():
 @app.route("/terminate", methods=['POST'])
 def terminate():
     # Dropping nodes and force, not needed for this downstream
-    try:
+    # try:
         args = json.loads(request.form.get("args"))
         name = args["name"]
         number = args["number"]
         jobid = args["jobid"]
         return jsonify(baremetal_connector.terminate(name, number, jobid)), 200
-    except Exception as e:
-        return report_error(e), 500
+    # except Exception as e:
+    #     return report_error(e), 500
 
 
 # /online
@@ -191,14 +191,14 @@ def online():
 # returns True, 200 if ok
 @app.route("/release", methods=['POST'])
 def release():
-    try:
+    # try:
         args = json.loads(request.form.get("args"))
         name = args["name"]
         number = args["number"]
         jobid = args["jobid"]
         return jsonify(baremetal_connector.release(name, number, jobid)), 200
-    except Exception as e:
-        return report_error(e), 500
+    # except Exception as e:
+    #     return report_error(e), 500
 
 
 # /events
@@ -206,14 +206,14 @@ def release():
 # returns events, 200 with events being some stdout of the events call
 @app.route("/events", methods=['POST'])
 def events():
-    try:
+    # try:
         args = json.loads(request.form.get("args"))
         name = args["name"]
         number = args["number"]
         jobid = args["jobid"]
         return jsonify(baremetal_connector.events(name, number, jobid)), 200
-    except Exception as e:
-        return report_error(e), 500
+    # except Exception as e:
+    #     return report_error(e), 500
 
 
 
@@ -226,7 +226,7 @@ def events():
 
 @app.route('/request/<path:path>', methods=['POST'])
 def requests(path):
-    try:
+    # try:
         # print("-----------------------------------")
         # print(request.form)
         print("-----------------------------------")
@@ -249,8 +249,8 @@ def requests(path):
                 return "", code
             else:
                 return content, code
-    except Exception as e:
-        return report_error(e), 500
+    # except Exception as e:
+    #     return report_error(e), 500
 
 
 # ## RUNNING SERVER
