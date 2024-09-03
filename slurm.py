@@ -69,6 +69,9 @@ class baremetal_connector(object):
         self.scratchdir = os.path.join(os.getenv(
             'JARVICE_BAREMETAL_SCRATCH_DIR', ""), '')
 
+        self.scratchdir = os.path.join(os.getenv(
+            'JARVICE_JOB_GLOBAL_SCRATCH_DIR', ""), '')
+
         # ############## Singularity ###############
         # Enable/disable singularity and script verbosity
         self.singularity_verbose = os.getenv(
@@ -439,6 +442,7 @@ class baremetal_connector(object):
 
 # Global parameters
 export JARVICE_JOB_SCRATCH_DIR={JARVICE_BAREMETAL_SCRATCH_DIR}
+export JARVICE_JOB_GLOBAL_SCRATCH_DIR={JARVICE_JOB_GLOBAL_SCRATCH_DIR}
 export SINGULARITYENV_JARVICE_SERVICE_PORT={JARVICE_SERVICE_PORT}
 export SINGULARITYENV_JARVICE_SSH_PORT={JARVICE_SSH_PORT}
 export JARVICE_SINGULARITY_TMPDIR={JARVICE_SINGULARITY_TMPDIR}
@@ -673,6 +677,7 @@ export SCNO_PROXY={JARVICE_BAREMETAL_NO_PROXY}
         script = hpc_script.format(
             DOWNSTREAM_PARAMETERS=connection_string.format(
                 JARVICE_BAREMETAL_SCRATCH_DIR=self.scratchdir,
+                JARVICE_JOB_GLOBAL_SCRATCH_DIR=self.global_scratchdir,
                 JARVICE_SERVICE_PORT=svc_port,
                 JARVICE_SSH_PORT=ssh_port,
                 JARVICE_SINGULARITY_TMPDIR=self.singularity_tmpdir,
