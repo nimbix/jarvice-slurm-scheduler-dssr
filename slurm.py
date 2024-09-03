@@ -165,7 +165,7 @@ class baremetal_connector(object):
         job_mapped_user_private_key = {}
 
         job_mapped_user = users_mapping_db[jarvice_user]['mapped_user']
-        job_mapped_user_private_key[jarvice_user]['ssh_private_key_b64']
+        job_mapped_user_private_key = users_mapping_db[jarvice_user]['ssh_private_key_b64']
         job_mapped_user_private_key = b64decode(job_mapped_user_private_key).decode('utf-8')
 
         return job_mapped_user, job_mapped_user_private_key
