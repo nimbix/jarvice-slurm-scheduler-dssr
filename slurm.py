@@ -66,12 +66,15 @@ class baremetal_connector(object):
         # ############## Data handling ###############
         # We assume scratchdir to always end by an / in scripts later,
         # except if empty. path.join ensure path end with / if not empty
-        self.scratchdir = os.path.join(os.getenv(
-            'JARVICE_BAREMETAL_SCRATCH_DIR', ""), '')
-
-        self.global_scratchdir = os.path.join(os.getenv(
+        self.job_scratch_dir = os.path.join(os.getenv(
+            'JARVICE_JOB_SCRATCH_DIR', ""), '')
+        self.job_global_scratch_dir = os.path.join(os.getenv(
             'JARVICE_JOB_GLOBAL_SCRATCH_DIR', ""), '')
 
+        # ############## Images handling ###############
+        self.job_global_registries = os.path.join(os.getenv(
+            'JARVICE_JOB_GLOBAL_REGISTRIES', ""), '').split(',')
+        
         # ############## Singularity ###############
         # Enable/disable singularity and script verbosity
         self.singularity_verbose = os.getenv(
@@ -105,7 +108,7 @@ class baremetal_connector(object):
         self.log.info(f'|     port: {self.slurmrestd_port}')
         self.log.info(f'|     api_version: {self.slurmrestd_api_version}')
         self.log.info('|-- Script environment:')
-        self.log.info(f'|     Jobs scratch dir: {self.scratchdir}')
+        self.log.info(f'|     Jobs scratch dir: {self.job_scratch_dir}')
         self.log.info(f'|     http_proxy: {self.baremetal_http_proxy}')
         self.log.info(f'|     https_proxy: {self.baremetal_https_proxy}')
         self.log.info(f'|     no_proxy: {self.baremetal_no_proxy}')
@@ -252,7 +255,7 @@ class baremetal_connector(object):
         stdout, stderr = self.ssh_as_user(
             job_mapped_user,
             job_mapped_user_private_key,
-            'tail -10000 %s.out' % (self.scratchdir + '.jarvice/' + name)
+            'tail -10000 %s.out' % (self.job_scratch_dir + '.jarvice/' + name)
         )
         outs = [stdout,
                 '<< termination state: %s -- see STDOUT for job errors >>' %
@@ -405,7 +408,7 @@ class baremetal_connector(object):
                 job_mapped_user_private_key,
                 'tail -%d %s.jarvice/%s.out' % (
                     lines,
-                    self.scratchdir, jobname
+                    self.job_scratch_dir, jobname
                 )
             )
             return rsp(200, content_type='text/plain',
@@ -441,8 +444,9 @@ class baremetal_connector(object):
 # See this section as a "connector"
 
 # Global parameters
-export JARVICE_JOB_SCRATCH_DIR={JARVICE_BAREMETAL_SCRATCH_DIR}
+export JARVICE_JOB_SCRATCH_DIR={JARVICE_JOB_SCRATCH_DIR}
 export JARVICE_JOB_GLOBAL_SCRATCH_DIR={JARVICE_JOB_GLOBAL_SCRATCH_DIR}
+export JARVICE_JOB_APP_IS_IN_GLOBAL_REGISTRIES="{JARVICE_JOB_APP_IS_IN_GLOBAL_REGISTRIES}"
 export SINGULARITYENV_JARVICE_SERVICE_PORT={JARVICE_SERVICE_PORT}
 export SINGULARITYENV_JARVICE_SSH_PORT={JARVICE_SSH_PORT}
 export JARVICE_SINGULARITY_TMPDIR={JARVICE_SINGULARITY_TMPDIR}
@@ -641,6 +645,12 @@ export SCNO_PROXY={JARVICE_BAREMETAL_NO_PROXY}
 
         jarvice_app_image = 'docker://' + app_image
 
+        # Check if app image is in global registries
+        job_app_is_in_global_registries = "False"
+        for registry in self.job_global_registries:
+            if registry in jarvice_app_image:
+                job_app_is_in_global_registries = "True"
+
         # Grab app image credentials (if any)
         if jobobj_ctrsecret is not None:
             auths = json.loads(b64decode(
@@ -676,8 +686,9 @@ export SCNO_PROXY={JARVICE_BAREMETAL_NO_PROXY}
         self.log.info("Building script")
         script = hpc_script.format(
             DOWNSTREAM_PARAMETERS=connection_string.format(
-                JARVICE_BAREMETAL_SCRATCH_DIR=self.scratchdir,
-                JARVICE_JOB_GLOBAL_SCRATCH_DIR=self.global_scratchdir,
+                JARVICE_JOB_SCRATCH_DIR=self.job_scratch_dir,
+                JARVICE_JOB_GLOBAL_SCRATCH_DIR=self.job_global_scratch_dir,
+                JARVICE_JOB_APP_IS_IN_GLOBAL_REGISTRIES=job_app_is_in_global_registries,
                 JARVICE_SERVICE_PORT=svc_port,
                 JARVICE_SSH_PORT=ssh_port,
                 JARVICE_SINGULARITY_TMPDIR=self.singularity_tmpdir,
@@ -883,7 +894,7 @@ fi
     """.format(
             job_name=name,
             encoded_script=encoded_script,
-            scratchdir=self.scratchdir,
+            scratchdir=self.job_scratch_dir,
             username=self.job_mapped_user
         )
 
@@ -966,7 +977,7 @@ EOF
                     '--exclusive' if slurm_exclusive else '',
                     '--time=' + slurm_time if slurm_time else '',
                     sbatch_add_params if sbatch_add_params else '',
-                    name, self.scratchdir,
+                    name, self.job_scratch_dir,
                     name, jobobj_cores * nodes, nodes, '-H' if held else '',
                     f'-L {licenses}' if licenses else ''),
                 instr=script)
@@ -1015,8 +1026,8 @@ EOF
                 job_mapped_user,
                 job_mapped_user_private_key,
                 '/bin/sh -c "nohup rm -Rf %s.out %s >/dev/null 2>&1 &"' % (
-                    self.scratchdir + '.jarvice/' + name,
-                    self.scratchdir + '.jarvice/jobs/' + jobid
+                    self.job_scratch_dir + '.jarvice/' + name,
+                    self.job_scratch_dir + '.jarvice/jobs/' + jobid
                 )
         )
 
