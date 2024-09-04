@@ -69,7 +69,7 @@ class baremetal_connector(object):
         self.scratchdir = os.path.join(os.getenv(
             'JARVICE_BAREMETAL_SCRATCH_DIR', ""), '')
 
-        self.scratchdir = os.path.join(os.getenv(
+        self.global_scratchdir = os.path.join(os.getenv(
             'JARVICE_JOB_GLOBAL_SCRATCH_DIR', ""), '')
 
         # ############## Singularity ###############
