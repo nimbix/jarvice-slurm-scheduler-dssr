@@ -239,6 +239,9 @@ class baremetal_connector(object):
                 elif state == 'COMPLETED':
                     # successful completion
                     rc = 0
+                elif state == 'RUNNING':
+                    # We were too fast, job state hasnt reached db, retry later
+                    raise Exception('Job still running in DB')
                 else:
                     # other termination - consider canceled in JARVICE terms
                     rc = -9
