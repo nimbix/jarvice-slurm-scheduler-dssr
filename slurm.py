@@ -22,7 +22,7 @@ class baremetal_connector(object):
     def __init__(self):
 
         self.log = logging.getLogger(__name__)
-        logging.basicConfig(encoding='utf-8', level=logging.DEBUG)
+        logging.basicConfig(encoding='utf-8', level=logging.INFO)
 
         self.slurm_interface = os.getenv('JARVICE_SLURM_INTERFACE', 'cli')
         self.baremetal_executor = os.getenv('JARVICE_BAREMETAL_EXECUTOR', 'singularity')
@@ -1051,14 +1051,12 @@ EOF
         stdout, stderr = self.ssh(cmd)
         for line in stdout.splitlines():
             if line.startswith('jarvice_'):
-                queue.append(line[8:].split('|'))
+                queue.append(line[8:].split('|')[0:2])
         return queue
 
     def squeue1(self, jobid, user=None):
         """ returns job info on a single job """
         cmd = 'squeue --noheader -o "%%t|%%M|%%N" -j %s -t all' % jobid
-        if user:
-            cmd += ' -u "%s"' % user
         stdout, stderr = self.ssh(cmd)
         try:
             state, elapsed, nodes = stdout.split('|')
@@ -1127,9 +1125,9 @@ EOF
             stdout = stdout.read().decode().rstrip()
             stderr = stderr.read().decode().rstrip()
             if len(stdout) > 1:
-                self.log.info('stdout: %s' % stdout)
+                self.log.debug('stdout: %s' % stdout)
             if len(stderr) > 1:
-                self.log.info('stderr: %s' % stderr)
+                self.log.debug('stderr: %s' % stderr)
             return stdout, stderr
 
     def ssh_as_user(self, user, pkey, cmd, instr=None):
@@ -1152,7 +1150,7 @@ EOF
             stdout = stdout.read().decode().rstrip()
             stderr = stderr.read().decode().rstrip()
             if len(stdout) > 1:
-                self.log.info('stdout: %s' % stdout)
+                self.log.debug('stdout: %s' % stdout)
             if len(stderr) > 1:
-                self.log.info('stderr: %s' % stderr)
+                self.log.debug('stderr: %s' % stderr)
             return stdout, stderr
