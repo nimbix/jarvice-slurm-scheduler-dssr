@@ -1042,10 +1042,7 @@ EOF
         queue = []
         fmt = '%j|%A'
         cmd = 'squeue --noheader'
-        if user:
-            cmd += (' -u "%s"' % user)
-        else:
-            fmt += '|%u'
+        fmt += '|%u'
         if states:
             cmd += (' -t "%s"' % states)
         else:

@@ -23,7 +23,7 @@ It was developed on Debian 12 with Python 3.11.2.
 Needed pip3 dependencies (recommended to work in a Python virtual environment):
 
 ```
-pip3 install json waitress flask paramiko yaml PyJWT
+pip3 install pyjson waitress flask paramiko pyyaml PyJWT
 ```
 
 **json** and **yaml** are standard, **waitress** and **flask** are used for the http front end, **paramiko** to manage ssh layer between this downstream and the target cluster, and **PyJWT** to decode bearer tokens sent by Jarvice upstream at job submission.
