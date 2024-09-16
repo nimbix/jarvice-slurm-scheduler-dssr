@@ -123,6 +123,81 @@ The following parameters are available for the singularity executor, as environm
 * `JARVICE_SINGULARITY_OVERLAY_SIZE`: default `600`. Define size on Mb of the overlay image during runtime. Setting this value to `0` push the tool to try to fallback on writable tmpfs instead of overlayfs. Writable tmpfs can leads to compatibility issues with some apps.
 * `JARVICE_SINGULARITY_VERBOSE`: default `false`. If set to `true`, this will enable verbose mode on sigularity calls.
 
+To use this executor with a new connector, you need to:
+
+1. Inject your local downstream values, using a connection script, and injecting it inside the script sent by upstream, replacing the variable `DOWNSTREAM_PARAMETERS`.
+
+For example, the Slurm connector uses this script:
+
+```
+# --------------------------------------------------------------------------
+# Main parameters from baremetal Dowstream
+# This part is dynamic
+# and can be adapted to any kind of bare metal job scheduler
+# See this section as a "connector"
+
+# Global parameters
+export JARVICE_JOB_SCRATCH_DIR={JARVICE_JOB_SCRATCH_DIR}
+export JARVICE_JOB_GLOBAL_SCRATCH_DIR={JARVICE_JOB_GLOBAL_SCRATCH_DIR}
+export JARVICE_JOB_APP_IS_IN_GLOBAL_REGISTRIES="{JARVICE_JOB_APP_IS_IN_GLOBAL_REGISTRIES}"
+export SINGULARITYENV_JARVICE_SERVICE_PORT={JARVICE_SERVICE_PORT}
+export SINGULARITYENV_JARVICE_SSH_PORT={JARVICE_SSH_PORT}
+export JARVICE_SINGULARITY_TMPDIR={JARVICE_SINGULARITY_TMPDIR}
+
+# User
+export JOB_LOCAL_USER=$USER
+
+# Singularity and images parameters
+export JARVICE_SINGULARITY_OVERLAY_SIZE={JARVICE_SINGULARITY_OVERLAY_SIZE}
+
+# Possible credentials
+export JARVICE_INIT_DOCKER_USERNAME="{JARVICE_INIT_DOCKER_USERNAME}"
+export JARVICE_INIT_DOCKER_PASSWORD="{JARVICE_INIT_DOCKER_PASSWORD}"
+export JARVICE_DOCKER_USERNAME="{JARVICE_DOCKER_USERNAME}"
+export JARVICE_DOCKER_PASSWORD="{JARVICE_DOCKER_PASSWORD}"
+
+# Images
+export JARVICE_APP_IMAGE={JARVICE_APP_IMAGE}
+export JARVICE_INIT_IMAGE={JARVICE_INIT_IMAGE}
+
+# Final CMD from downstream
+export JARVICE_CMD={JARVICE_CMD}
+
+# Enable or not verbosity in steps
+export SV_FLAG="-s"
+export SV={SINGULARITY_VERBOSE}
+[ "$SV" = "true" ] && export SV_FLAG="-v"
+
+# Proxy parameters
+export SCHTTP_PROXY={JARVICE_BAREMETAL_HTTP_PROXY}
+export SCHTTPS_PROXY={JARVICE_BAREMETAL_HTTPS_PROXY}
+export SCNO_PROXY={JARVICE_BAREMETAL_NO_PROXY}
+
+# --------------------------------------------------------------------------
+```
+
+2. Make the script compatible with your local scheduler. For example, the Slurm connector is adding the following content on top of the script, to make it compatible with Slurm execution:
+
+```
+# --------------------------------------------------------------------------
+# Dynamic/binding parameters, to connect to job scheduler
+export PROCESS_PROCID=$SLURM_PROCID
+export PROCESS_NODENAME=$SLURMD_NODENAME
+export JOB_JOBID=$SLURM_JOBID
+export JOB_JOB_NODELIST=$SLURM_JOB_NODELIST
+export JOB_JOB_FORMATED_NODELIST=$(scontrol show hostname $JOB_JOB_NODELIST | sed ":b;N;$!bb;s/\\n/ /g")
+export JOB_NNODES=$SLURM_NNODES
+export JOB_NTASKS=$SLURM_NTASKS
+export JOB_SUBMIT_DIR=$SLURM_SUBMIT_DIR
+export JOB_GPUS_PER_NODE=$SLURM_GPUS_PER_NODE
+# --------------------------------------------------------------------------
+```
+
+And is also wrapping the whole content with an srun execution.
+
+During the script execution, the folder `$JARVICE_JOB_SCRATCH_DIR.jarvice/jobs/$JOB_JOBID` will be created, and mutltiple subfolders too.
+The Jarvice init image will be pulled, and some libs and bins will be extracted from it to allow execution.
+
 ## 4. Examples
 
 ### 4.1. Slurm with Singularity
