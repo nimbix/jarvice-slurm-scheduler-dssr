@@ -19,16 +19,7 @@ app = Flask(__name__)
 baremetal = importlib.import_module(os.getenv('JARVICE_BAREMETAL_CONNECTOR'))
 baremetal_connector = baremetal.baremetal_connector()
 
-# Make verbose answers in case of crash, its simpler for debug
-def report_error(e):
-     exc_type, exc_obj, exc_tb = sys.exc_info()
-     fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
-     print(e, exc_type, fname, exc_tb.tb_lineno)
-     return str(e) + str(exc_type) + str(fname) + str(exc_tb.tb_lineno)
-
-
 # ################## END POINTS - LEGACY
-
 
 # /live
 # Used to check if downstream is available
@@ -71,7 +62,7 @@ def submit():
         return jsonify(
             baremetal_connector.submit(name, number, nodes, hpc_script, bearer)), 200
     except Exception as e:
-        return jsonify(report_error(e)), 500
+        return "Submitting job failed, investigate logs", 500
 
 
 # /nodes
@@ -91,8 +82,7 @@ def running():
     try:
         return jsonify(baremetal_connector.running()), 200
     except Exception as e:
-        return report_error(e), 500
-
+        return "Getting running jobs list failed, investigate logs", 500
 
 # /queued
 # send to upstream the list of jobids queued
@@ -102,9 +92,10 @@ def running():
 # - 500 if something failed
 @app.route("/queued", methods=['GET'])
 def queued():
-    print('/queued')
-    return jsonify(baremetal_connector.queued()), 200
-
+    try:
+        return jsonify(baremetal_connector.queued()), 200
+    except Exception as e:
+        return "Getting queued jobs list failed, investigate logs", 500
 
 # /exitstatus
 # returns exit status of a completed job, along with the total time of the job, and the final logs of the job
@@ -124,8 +115,6 @@ def queued():
 # Important: gc_job (aka cleaning of job files, etc.) must be done at this stage, so existatus MUST garbage collect the job
 @app.route("/exitstatus", methods=['POST'])
 def exitstatus():
-    print('/exitstatus')
-
     try:
         args = json.loads(request.form.get("args"))
         name = args["name"]
@@ -133,7 +122,7 @@ def exitstatus():
         jobid = args["jobid"]
         return jsonify(baremetal_connector.exitstatus(name, number, jobid)), 200
     except Exception as e:
-        return report_error(e), 500
+        return "Exitstatus failed, investigate logs", 500
 
 
 # /runstatus
@@ -156,7 +145,7 @@ def runstatus():
         jobid = args["jobid"]
         return jsonify(baremetal_connector.runstatus(name, number, jobid)), 200
     except Exception as e:
-        return report_error(e), 500
+        return "Runstatus failed, investigate logs", 500
 
 
 # /terminate
@@ -172,7 +161,7 @@ def terminate():
         jobid = args["jobid"]
         return jsonify(baremetal_connector.terminate(name, number, jobid)), 200
     except Exception as e:
-        return report_error(e), 500
+        return "Terminate failed, investigate logs", 500
 
 
 # /online
@@ -195,7 +184,7 @@ def release():
         jobid = args["jobid"]
         return jsonify(baremetal_connector.release(name, number, jobid)), 200
     except Exception as e:
-        return report_error(e), 500
+        return "release failed, investigate logs", 500
 
 
 # /events
@@ -210,7 +199,7 @@ def events():
         jobid = args["jobid"]
         return jsonify(baremetal_connector.events(name, number, jobid)), 200
     except Exception as e:
-        return report_error(e), 500
+        return "Events failed, investigate logs", 500
 
 
 
@@ -226,18 +215,18 @@ def requests(path):
     try:
         # print("-----------------------------------")
         # print(request.form)
-        print("-----------------------------------")
+        #print("-----------------------------------")
         args = json.loads(request.form.get("args"))
-        print(args)
-        print("-----------------------------------")
+        #print(args)
+        #print("-----------------------------------")
         qs = args["qs"]
 
         # This method is not "standard"
         # as it can return raw content or json based content
         code, content_type, content = baremetal_connector.request(path, qs)
-        print(code)
-        print(content_type)
-        print(content)
+        #print(code)
+        #print(content_type)
+        #print(content)
         if content_type == 'application/json':
             ret = json.loads(content)
             return jsonify(ret)
@@ -247,22 +236,22 @@ def requests(path):
             else:
                 return content, code
     except Exception as e:
-        return report_error(e), 500
+        return "request failed, investigate logs", 500
 
 
 # ## RUNNING SERVER
 
 if __name__ == "__main__":
-#    from waitress import serve
 
     print("Now running as server")
     print("URLs map:")
     print(app.url_map)
 
- #   waitress_port = int(os.getenv('WAITRESS_PORT', "5000"))
- #   waitress_bind_address = os.getenv('WAITRESS_BIND_ADDRESS', "0.0.0.0")
-
- #   serve(app, host=waitress_bind_address, port=waitress_port)
-
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    if len(sys.argv) > 1 and sys.argv[1] == "waitress":
+        from waitress import serve
+        waitress_port = int(os.getenv('WAITRESS_PORT', "5000"))
+        waitress_bind_address = os.getenv('WAITRESS_BIND_ADDRESS', "0.0.0.0")
+        serve(app, host=waitress_bind_address, port=waitress_port)
+    else:
+        app.run(host="0.0.0.0", port=5000, debug=True)
     quit()

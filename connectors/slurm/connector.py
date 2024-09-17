@@ -1,12 +1,21 @@
+#
+# NIMBIX OSS
+# ----------
+#
+# Copyright (c) 2024 Nimbix, Inc.
+#
+
 import os
 import json
 import io
 import shlex
 import urllib.parse
 import paramiko
-from base64 import b64encode, b64decode
 import logging
-
+import yaml
+import jwt
+from base64 import b64encode, b64decode
+from pathlib import Path
 
 class baremetal_connector(object):
 
@@ -15,7 +24,16 @@ class baremetal_connector(object):
         self.log = logging.getLogger(__name__)
         logging.basicConfig(encoding='utf-8', level=logging.INFO)
 
-        self.baremetal_executor = os.getenv('JARVICE_BAREMETAL_EXECUTOR')
+        self.slurm_interface = os.getenv('JARVICE_SLURM_INTERFACE', 'cli')
+        self.baremetal_executor = os.getenv('JARVICE_BAREMETAL_EXECUTOR', 'singularity')
+
+        if self.slurm_interface == 'cli':
+            try:
+              # Load configuration from YAML file
+                with open('users_id_mapping_configuration.yaml', 'r') as file:
+                    self.users_id_mapping_configuration = yaml.safe_load(file)
+            except Exception as e:
+                raise Exception('Cloud not read users id mapping file:' + str(e))
 
         # ############## Images handling ###############
         # Docker credentials to grab Jarvice images
@@ -48,9 +66,15 @@ class baremetal_connector(object):
         # ############## Data handling ###############
         # We assume scratchdir to always end by an / in scripts later,
         # except if empty. path.join ensure path end with / if not empty
-        self.scratchdir = os.path.join(os.getenv(
-            'JARVICE_BAREMETAL_SCRATCH_DIR', ""), '')
+        self.job_scratch_dir = os.path.join(os.getenv(
+            'JARVICE_JOB_SCRATCH_DIR', ""), '')
+        self.job_global_scratch_dir = os.path.join(os.getenv(
+            'JARVICE_JOB_GLOBAL_SCRATCH_DIR', ""), '')
 
+        # ############## Images handling ###############
+        self.job_global_registries = os.path.join(os.getenv(
+            'JARVICE_JOB_GLOBAL_REGISTRIES', ""), '').split(',')
+        
         # ############## Singularity ###############
         # Enable/disable singularity and script verbosity
         self.singularity_verbose = os.getenv(
@@ -61,6 +85,11 @@ class baremetal_connector(object):
         # Singularity overlay size
         self.overlay_size = os.getenv('JARVICE_SINGULARITY_OVERLAY_SIZE', 600)
 
+        # ############## Slurm REST API ##############
+        self.slurmrestd_host = os.environ['JARVICE_SLURMRESTD_ADDR']
+        self.slurmrestd_port = os.environ['JARVICE_SLURMRESTD_PORT']
+        self.slurmrestd_api_version = os.environ['JARVICE_SLURMRESTD_API_VERSION']
+
         # ############## SSH to slurm cluster ###############
         self.ssh_host = os.environ['JARVICE_SLURM_CLUSTER_ADDR']
         self.ssh_port = os.getenv('JARVICE_SLURM_CLUSTER_PORT', default=22)
@@ -68,13 +97,18 @@ class baremetal_connector(object):
         self.ssh_pkey = os.environ['JARVICE_SLURM_SSH_PKEY']
 
         self.log.info('')
+        self.log.info(self.init_dockeruser)
         self.log.info('+----- Slurm Scheduler init report -----+')
         self.log.info('|-- SSH connection to target cluster:')
         self.log.info(f'|     host: {self.ssh_host}')
         self.log.info(f'|     port: {self.ssh_port}')
-        self.log.info(f'|     user: {self.ssh_user}')
+        self.log.info(f'|     jarvice user: {self.ssh_user}')
+        self.log.info('|-- HTTP API connection to target slurmrestd (if relevant):')
+        self.log.info(f'|     host: {self.slurmrestd_host}')
+        self.log.info(f'|     port: {self.slurmrestd_port}')
+        self.log.info(f'|     api_version: {self.slurmrestd_api_version}')
         self.log.info('|-- Script environment:')
-        self.log.info(f'|     scratch dir: {self.scratchdir}')
+        self.log.info(f'|     Jobs scratch dir: {self.job_scratch_dir}')
         self.log.info(f'|     http_proxy: {self.baremetal_http_proxy}')
         self.log.info(f'|     https_proxy: {self.baremetal_https_proxy}')
         self.log.info(f'|     no_proxy: {self.baremetal_no_proxy}')
@@ -87,11 +121,61 @@ class baremetal_connector(object):
         self.log.info(' Now testing connectivity to target cluster...')
         try:
             self.ssh('/bin/true')
+            self.log.info(' Success! :)')
         except Exception as e:
-            self.log.warning('SSH failed: %s' % str(e))
-            self.log.warning('Could not connect to remote cluster!')
-            self.log.warning('Please check ssh parameters.')
-        self.log.info('\nInit done. Entering main loop.')
+            self.log.warning(' SSH failed: %s' % str(e))
+            self.log.warning(' Could not connect to remote cluster! :(')
+            self.log.warning(' Please check ssh parameters.')
+        self.log.info(' Now testing connectivity to target cluster slurmrestd...')
+        try:
+            stdout, stderr = self.ssh("curl " + self.slurmrestd_host + ":" + self.slurmrestd_port + "/")
+            if "Authentication failure" in stderr or "Authentication failure" in stdout:
+                self.log.info(' Success! :)')
+            else:
+                self.log.info(' Could ssh to cluster but could not reach slurmrestd :(')
+        except Exception as e:
+            self.log.warning(' SSH failed: %s' % str(e))
+            self.log.warning(' Could not connect to remote cluster! :(')
+            self.log.warning(' Please check ssh parameters.')
+        self.log.info('\n Init done. Entering main loop.')
+
+
+    def user_id_mapping(self, user_mail):
+        """
+        Returns mapped username, from main configuration.
+        This is based on user email, not user name.
+        None if not found.
+        """
+        mapped_user = None
+        mapped_user_pkey = None
+        for user in self.users_id_mapping_configuration['users_id_mapping']:
+            if user["mail"] == user_mail:
+                mapped_user = user["mapped_user"]
+                mapped_user_pkey = user["ssh_private_key_b64"]
+                break
+
+        return mapped_user, mapped_user_pkey
+
+
+    def user_id_mapping_from_cache(self, jobname):
+        """
+        Returns mapped username, from cache.
+        """
+        # Jarvice user is stored inside job name, extract it
+        jarvice_user = jobname.split('-')[-1].split('_')[0]
+
+        # Obtain mapped user and ssh key from cache
+        with open('users_mapping_db.yaml', 'r') as file:
+            users_mapping_db = yaml.safe_load(file)
+
+        job_mapped_user_private_key = {}
+
+        job_mapped_user = users_mapping_db[jarvice_user]['mapped_user']
+        job_mapped_user_private_key = users_mapping_db[jarvice_user]['ssh_private_key_b64']
+        job_mapped_user_private_key = b64decode(job_mapped_user_private_key).decode('utf-8')
+
+        return job_mapped_user, job_mapped_user_private_key
+
 
     def gc(self):
         """ garbage collection endpoint; fail if cluster not reachable """
@@ -155,6 +239,9 @@ class baremetal_connector(object):
                 elif state == 'COMPLETED':
                     # successful completion
                     rc = 0
+                elif state == 'RUNNING':
+                    # We were too fast, job state hasnt reached db, retry later
+                    raise Exception('Job still running in DB')
                 else:
                     # other termination - consider canceled in JARVICE terms
                     rc = -9
@@ -165,8 +252,14 @@ class baremetal_connector(object):
 
         # If we reach that point, we got a state
         # fetch and clean output - last 10k lines only
-        stdout, stderr = self.ssh(
-            'tail -10000 %s.out' % (self.scratchdir + '.jarvice/' + name))
+
+        job_mapped_user, job_mapped_user_private_key = self.user_id_mapping_from_cache(name)
+
+        stdout, stderr = self.ssh_as_user(
+            job_mapped_user,
+            job_mapped_user_private_key,
+            'tail -10000 %s.out' % (self.job_scratch_dir + '.jarvice/' + name)
+        )
         outs = [stdout,
                 '<< termination state: %s -- see STDOUT for job errors >>' %
                 state]
@@ -191,7 +284,29 @@ class baremetal_connector(object):
         # regardless of force - was:
         #    self.ssh('scancel -s %d %s' % (9 if force else 15, jobid))
         self.log.info(f'Terminating job: {jobid}')
-        self.ssh('scancel -f ' + jobid)
+
+        job_mapped_user, job_mapped_user_private_key = self.user_id_mapping_from_cache(name)
+
+        self.ssh_as_user(
+            job_mapped_user,
+            job_mapped_user_private_key,
+            'scancel -f ' + jobid
+        )
+
+#         terminate_cmd = """
+# curl -X DEL {slurmrestd_host}:{slurmrestd_port}/slurm/{slurmrestd_api_version}/job/{jobid} \
+# -H "X-SLURM-USER-NAME:{username}" \
+# -H "X-SLURM-USER-TOKEN:{jwt_token}"
+# """.format(
+#         slurmrestd_host=self.slurmrestd_host,
+#         slurmrestd_port=self.slurmrestd_port,
+#         slurmrestd_api_version=self.slurmrestd_api_version,
+#         jobid=jobid,
+#         username=self.job_mapped_user,
+#         jwt_token=os.getenv('SLURM_JWT')
+#     )
+#         stdout, stderr = self.ssh(terminate_cmd)
+
         return True  # best effort
 
     def online(self, host, status=True, comment=''):
@@ -200,7 +315,14 @@ class baremetal_connector(object):
 
     def release(self, name, number, jobid):
         """ releases a held job """
-        stdout, stderr = self.ssh(f'scontrol release {jobid}')
+
+        job_mapped_user, job_mapped_user_private_key = self.user_id_mapping_from_cache(name)
+
+        stdout, stderr = self.ssh_as_user(
+            job_mapped_user,
+            job_mapped_user_private_key,
+            f'scontrol release {jobid}'
+        )
         if stderr:
             raise Exception(f'Releasing job failed: {stderr}')
         return True  # Best effort
@@ -209,7 +331,13 @@ class baremetal_connector(object):
         """ returns list of events associated with job """
         # what's most useful to the admin here is the scontrol job output;
         # while not exactly events, it can show what's happening with a job
-        stdout, stderr = self.ssh(f'scontrol show job {jobid}')
+
+        job_mapped_user, job_mapped_user_private_key = self.user_id_mapping_from_cache(name)
+
+        stdout, stderr = self.ssh_as_user(
+            job_mapped_user,
+            job_mapped_user_private_key,f'scontrol show job {jobid}'
+        )
         if not stdout:
             raise Exception(f'squeue failed: {stderr}')
         return stdout
@@ -257,10 +385,6 @@ class baremetal_connector(object):
         except Exception:
             self.log.info('path decode failed')
             return rsp(400)
-        self.log.debug("jobname " + jobname)
-        self.log.debug("jobnum " + jobnum)
-        self.log.debug("jobid " + jobid)
-        self.log.debug("method " + method)
 
         # methods
         if method == 'ping':
@@ -274,14 +398,22 @@ class baremetal_connector(object):
             readyjson = {'about': '', 'help': '', 'url': '', 'actions': {}}
             return rsp_json(200, readyjson)
         elif method == 'tail':
+
+            job_mapped_user, job_mapped_user_private_key = self.user_id_mapping_from_cache(jobname)
+
             try:
                 lines = int(qs['lines'][0])
                 assert (lines > 1)
             except Exception:
                 lines = 100
-            stdout, stderr = self.ssh(
-                'tail -%d %s.jarvice/%s.out' % (lines,
-                                                self.scratchdir, jobname))
+            stdout, stderr = self.ssh_as_user(
+                job_mapped_user,
+                job_mapped_user_private_key,
+                'tail -%d %s.jarvice/%s.out' % (
+                    lines,
+                    self.job_scratch_dir, jobname
+                )
+            )
             return rsp(200, content_type='text/plain',
                        content=stdout) if stdout else rsp(404)
 
@@ -289,19 +421,19 @@ class baremetal_connector(object):
         return rsp(200)
 
     # Submit a job
-    def submit(self, name, number, nodes, hpc_script, held=False):
+    def submit(self, name, number, nodes, hpc_script, bearer, held=False):
         """ submits a job for scheduling
 
         Input:
         - name (str): name of the job
         - number (int): number associated to the job
         - hpc_script (str): script to be passed to job scheduler
+        - bearer (str): token to submit to slurm
 
         Ouput:
         - job name (str): job name provided by bare metal scheduler
 
         """
-
         self.log.info(f'Job submittion request for {name}:{number}')
 
         # Grab executor script only, and decode it
@@ -315,10 +447,15 @@ class baremetal_connector(object):
 # See this section as a "connector"
 
 # Global parameters
-export JARVICE_JOB_SCRATCH_DIR={JARVICE_BAREMETAL_SCRATCH_DIR}
+export JARVICE_JOB_SCRATCH_DIR={JARVICE_JOB_SCRATCH_DIR}
+export JARVICE_JOB_GLOBAL_SCRATCH_DIR={JARVICE_JOB_GLOBAL_SCRATCH_DIR}
+export JARVICE_JOB_APP_IS_IN_GLOBAL_REGISTRIES="{JARVICE_JOB_APP_IS_IN_GLOBAL_REGISTRIES}"
 export SINGULARITYENV_JARVICE_SERVICE_PORT={JARVICE_SERVICE_PORT}
 export SINGULARITYENV_JARVICE_SSH_PORT={JARVICE_SSH_PORT}
 export JARVICE_SINGULARITY_TMPDIR={JARVICE_SINGULARITY_TMPDIR}
+
+# User
+export JOB_LOCAL_USER=$USER
 
 # Singularity and images parameters
 export JARVICE_SINGULARITY_OVERLAY_SIZE={JARVICE_SINGULARITY_OVERLAY_SIZE}
@@ -356,61 +493,61 @@ export SCNO_PROXY={JARVICE_BAREMETAL_NO_PROXY}
             """
             for line2search in script2search.splitlines():
                 if len(line2search.split("=")) >= 2 and \
-                   line2search.split("=")[0] == key2find:
+                line2search.split("=")[0] == key2find:
                     if str(line2search.split("=")[1]) == "":
                         return None
                     return str(line2search.split("=", 1)[1])
             return None
 
-        self.jobobj_interactive = find_key(hpc_script, "JOBOBJ_INTERACTIVE")
-        if self.jobobj_interactive == "False":
-            self.jobobj_interactive = bool(False)
+        jobobj_interactive = find_key(hpc_script, "JOBOBJ_INTERACTIVE")
+        if jobobj_interactive == "False":
+            jobobj_interactive = bool(False)
         else:
-            self.jobobj_interactive = bool(True)
-        self.jobobj_appdefversion = int(
+            jobobj_interactive = bool(True)
+        jobobj_appdefversion = int(
             find_key(hpc_script, "JOBOBJ_APPDEFVERSION"))
-        self.jobobj_arch = find_key(hpc_script, "JOBOBJ_ARCH")
-        self.jobobj_nae = find_key(hpc_script, "JOBOBJ_NAE")
-        self.jobobj_repo = find_key(hpc_script, "JOBOBJ_REPO")
-        self.jobobj_ctrsecret = find_key(hpc_script, "JOBOBJ_CTRSECRET")
-        self.jobobj_user = find_key(hpc_script, "JOBOBJ_USER")
-        self.jobobj_docker_secret = find_key(
+        jobobj_arch = find_key(hpc_script, "JOBOBJ_ARCH")
+        jobobj_nae = find_key(hpc_script, "JOBOBJ_NAE")
+        jobobj_repo = find_key(hpc_script, "JOBOBJ_REPO")
+        jobobj_ctrsecret = find_key(hpc_script, "JOBOBJ_CTRSECRET")
+        jobobj_user = find_key(hpc_script, "JOBOBJ_USER")
+        jobobj_docker_secret = find_key(
             hpc_script, "JOBOBJ_DOCKER_SECRET")
-        if self.jobobj_docker_secret is not None:
+        if jobobj_docker_secret is not None:
             try:
-                self.jobobj_docker_secret = json.loads(
-                    self.jobobj_docker_secret)
+                jobobj_docker_secret = json.loads(
+                    jobobj_docker_secret)
             except json.decoder.JSONDecodeError:
-                self.jobobj_docker_secret = {}
+                jobobj_docker_secret = {}
         else:
-            self.jobobj_docker_secret = {}
-        self.jobobj_devices = find_key(hpc_script, "JOBOBJ_DEVICES")
-        if self.jobobj_devices is not None:
+            jobobj_docker_secret = {}
+        jobobj_devices = find_key(hpc_script, "JOBOBJ_DEVICES")
+        if jobobj_devices is not None:
             try:
-                self.jobobj_devices = json.loads(self.jobobj_devices)
+                jobobj_devices = json.loads(jobobj_devices)
             except json.decoder.JSONDecodeError:
-                self.jobobj_devices = {}
+                jobobj_devices = {}
         else:
-            self.jobobj_devices = {}
-        self.jobobj_gpus = find_key(hpc_script, "JOBOBJ_GPUS")
-        if self.jobobj_gpus is not None:
-            self.jobobj_gpus = int(self.jobobj_gpus)
+            jobobj_devices = {}
+        jobobj_gpus = find_key(hpc_script, "JOBOBJ_GPUS")
+        if jobobj_gpus is not None:
+            jobobj_gpus = int(jobobj_gpus)
         else:
-            self.jobobj_gpus = 0
-        self.jobobj_ram = find_key(hpc_script, "JOBOBJ_RAM")
-        if self.jobobj_ram is not None:
-            self.jobobj_ram = int(self.jobobj_ram)
+            jobobj_gpus = 0
+        jobobj_ram = find_key(hpc_script, "JOBOBJ_RAM")
+        if jobobj_ram is not None:
+            jobobj_ram = int(jobobj_ram)
         else:
-            self.jobobj_ram = 0
-        self.jobobj_licenses = find_key(hpc_script, "JOBOBJ_LICENSES")
-        self.jobobj_walltime = find_key(hpc_script, "JOBOBJ_WALLTIME")
-        self.jobobj_cores = int(find_key(hpc_script, "JARVICE_CPU_CORES"))
+            jobobj_ram = 0
+        jobobj_licenses = find_key(hpc_script, "JOBOBJ_LICENSES")
+        jobobj_walltime = find_key(hpc_script, "JOBOBJ_WALLTIME")
+        jobobj_cores = int(find_key(hpc_script, "JARVICE_CPU_CORES"))
         jarvice_cmd = find_key(hpc_script, "JARVICE_CMD")
 
-        if self.jobobj_appdefversion < 2:
+        if jobobj_appdefversion < 2:
             return 'Appdef V2+ is required for this downstream', 400
 
-        if self.jobobj_interactive and not self.jobsdomain:
+        if jobobj_interactive and not self.jobsdomain:
             return 'interactive jobs are not supported on this cluster', 400
 
         # determine appropriate Docker secret
@@ -483,8 +620,8 @@ export SCNO_PROXY={JARVICE_BAREMETAL_NO_PROXY}
 
         # Grab init image, and related credentials (if any)
         init_image = (self.sysregistry + "/" + self.sysbase + "/initv" +
-                      str(self.jobobj_appdefversion) + ":" +
-                      imgtag(goarch(self.jobobj_arch)))
+                    str(jobobj_appdefversion) + ":" +
+                    imgtag(goarch(jobobj_arch)))
         jarvice_init_image = 'docker://' + init_image
         init_dockeruser = b64decode(self.init_dockeruser).decode('utf-8')
         init_dockerpasswd = b64decode(self.init_dockerpasswd).decode('utf-8')
@@ -495,35 +632,41 @@ export SCNO_PROXY={JARVICE_BAREMETAL_NO_PROXY}
         if self.appregistry:
             # Caching mode deployment - image in local registry
             app_image = (self.appregistry + '/' + self.appbase + '/' +
-                         self.jobobj_nae + ':latest')
+                        jobobj_nae + ':latest')
         elif self.appproxyport:
-            app_image = self.jobobj_repo
+            app_image = jobobj_repo
             # override app repo with proxy if found
             for proxy in self.appproxybucket.split(','):
-                if self.jobobj_repo.startswith(proxy):
+                if jobobj_repo.startswith(proxy):
                     app_proxy = 'localhost:' + self.appproxyport
-                    app_image = self.jobobj_repo.replace(proxy.split('/')[0],
-                                                         app_proxy, 1)
+                    app_image = jobobj_repo.replace(proxy.split('/')[0],
+                                                        app_proxy, 1)
                     break
         else:
             # Remote mode deployment - image is in its original registry
-            app_image = self.jobobj_repo
+            app_image = jobobj_repo
 
         jarvice_app_image = 'docker://' + app_image
 
+        # Check if app image is in global registries
+        job_app_is_in_global_registries = "False"
+        for registry in self.job_global_registries:
+            if registry in jarvice_app_image:
+                job_app_is_in_global_registries = "True"
+
         # Grab app image credentials (if any)
-        if self.jobobj_ctrsecret is not None:
+        if jobobj_ctrsecret is not None:
             auths = json.loads(b64decode(
-                self.jobobj_ctrsecret).decode('utf-8')).get('auths', {})
+                jobobj_ctrsecret).decode('utf-8')).get('auths', {})
         else:
             auths = {}
         self.log.debug(
             f'Docker registry secrets available for: {list(auths.keys())}')
-        ds = self.jobobj_docker_secret
+        ds = jobobj_docker_secret
         if ds:
             self.log.debug(
                 f'Docker registry secret for job container for {ds["server"]}')
-        parts = self.jobobj_repo.split('/')
+        parts = jobobj_repo.split('/')
         reg = get_reg(parts[0]) if len(parts) > 2 else 'index.docker.io'
         dockeruser = ''
         dockerpasswd = ''
@@ -540,12 +683,15 @@ export SCNO_PROXY={JARVICE_BAREMETAL_NO_PROXY}
         self.log.info(jarvice_cmd)
 
         # Port is hard-coded for this simple version
-        ssh_port = 7777
-        svc_port = 7778
+        ssh_port = 2227
+        svc_port = 2228
 
+        self.log.info("Building script")
         script = hpc_script.format(
             DOWNSTREAM_PARAMETERS=connection_string.format(
-                JARVICE_BAREMETAL_SCRATCH_DIR=self.scratchdir,
+                JARVICE_JOB_SCRATCH_DIR=self.job_scratch_dir,
+                JARVICE_JOB_GLOBAL_SCRATCH_DIR=self.job_global_scratch_dir,
+                JARVICE_JOB_APP_IS_IN_GLOBAL_REGISTRIES=job_app_is_in_global_registries,
                 JARVICE_SERVICE_PORT=svc_port,
                 JARVICE_SSH_PORT=ssh_port,
                 JARVICE_SINGULARITY_TMPDIR=self.singularity_tmpdir,
@@ -564,8 +710,7 @@ export SCNO_PROXY={JARVICE_BAREMETAL_NO_PROXY}
                 JARVICE_BAREMETAL_HTTPS_PROXY=self.baremetal_https_proxy,
                 JARVICE_BAREMETAL_NO_PROXY=self.baremetal_no_proxy,
                 JARVICE_CMD=jarvice_cmd,
-                SINGULARITY_VERBOSE=self.singularity_verbose
-            )
+                SINGULARITY_VERBOSE=self.singularity_verbose            )
         )
 
         # Now enter slurm special part
@@ -579,6 +724,7 @@ export PROCESS_PROCID=$SLURM_PROCID
 export PROCESS_NODENAME=$SLURMD_NODENAME
 export JOB_JOBID=$SLURM_JOBID
 export JOB_JOB_NODELIST=$SLURM_JOB_NODELIST
+export JOB_JOB_FORMATED_NODELIST=$(scontrol show hostname $JOB_JOB_NODELIST | sed ":b;N;$!bb;s/\\n/ /g")
 export JOB_NNODES=$SLURM_NNODES
 export JOB_NTASKS=$SLURM_NTASKS
 export JOB_SUBMIT_DIR=$SLURM_SUBMIT_DIR
@@ -587,13 +733,13 @@ export JOB_GPUS_PER_NODE=$SLURM_GPUS_PER_NODE
     """
 
         srun_start = r"""#!/bin/bash
-
 echo "Hello from $(hostname)"
 echo "Entering parallel region"
 
 exec 5>&1
 FF=$(srun -K1 --export=ALL -N $SLURM_NNODES \
 -n $SLURM_NNODES --ntasks-per-node=1 /bin/bash -c '
+
 
     """
 
@@ -626,6 +772,8 @@ fi
 
         script = srun_start + dynamic_scheduler_mapping + script + srun_end
 
+        self.log.info("Preparing slurm job settings")
+
         # Now build sbatch parameters
 
         # devices/pseudo-devices...
@@ -637,7 +785,7 @@ fi
         sbatch_add_params = ''
         slurm_part = ''
         slurm_exclusive = True
-        for i in self.jobobj_devices:
+        for i in jobobj_devices:
             try:
                 k, v = i.split('=')
                 k = k.strip()
@@ -670,21 +818,21 @@ fi
         # job other limits: mem and gpus
         slurm_gpus = ''
         slurm_mem = ''
-        if self.jobobj_gpus > 0:
-            slurm_gpus = str(self.jobobj_gpus)
-        if self.jobobj_ram > 0:
-            slurm_mem = str(self.jobobj_ram)
+        if jobobj_gpus > 0:
+            slurm_gpus = str(jobobj_gpus)
+        if jobobj_ram > 0:
+            slurm_mem = str(jobobj_ram)
 
-        if (self.jobobj_interactive or slurm_gpus) and not slurm_exclusive:
+        if (jobobj_interactive or slurm_gpus) and not slurm_exclusive:
             self.log.info(
                 'interactive or GPU job forcing the use of node exclusivity!')
             slurm_exclusive = True
 
         # optional licenses
-        licenses = self.jobobj_licenses  # jobself.get('licenses', None)
+        licenses = jobobj_licenses  # jobself.get('licenses', None)
 
         # optional walltime
-        slurm_time = self.jobobj_walltime  # str(jobself.get('walltime', ''))
+        slurm_time = jobobj_walltime  # str(jobself.get('walltime', ''))
         if str(slurm_time) == 'None':
             slurm_time = ''
 
@@ -702,28 +850,153 @@ fi
         self.log.info(f'Submitting job {name}:{number} via sbatch')
         self.log.debug('Submitted script:')
         self.log.debug('--------------------------------------------------')
-        self.log.debug(script)
+        #self.log.debug(script)
         self.log.debug('--------------------------------------------------')
-        stdout, stderr = self.ssh(
-            'mkdir -p $HOME/.jarvice && \
-                sbatch %s %s %s %s %s %s \
-                --parsable -J "jarvice_%s" -o "%s.jarvice/%s.out" \
-                -n %d -N %d %s %s' %
-            ('-p ' + slurm_part if slurm_part else '',
-                '--mem=' + slurm_mem + 'G' if slurm_mem else '',
-                '--gpus-per-node=' + slurm_gpus if slurm_gpus else '',
-                '--exclusive' if slurm_exclusive else '',
-                '--time=' + slurm_time if slurm_time else '',
-                sbatch_add_params if sbatch_add_params else '',
-                name, self.scratchdir,
-                name, self.jobobj_cores * nodes, nodes, '-H' if held else '',
-                f'-L {licenses}' if licenses else ''),
-            instr=script)
 
-        if not stdout:
-            # self.pmgr.unreserve(number)  --> BEN
-            raise Exception(
-                'submit(): sbatch: ' + stderr.replace('\n', ' -- '))
+
+        # Here 2 methods
+        # Either REST HTTP, which requires full bearer token, but does not allow idmapping
+        # Either ssh (and so cli sbatch), which requires id mapping to be properly configured with users encoded ssh private keys
+        # HTTP WAY - THIS IS ONLY A POC !!!
+        if self.slurm_interface == "http":
+            # Building HTTP request
+            try:
+            # "script": "#!/bin/bash\\necho 'ZWNobyBoZWxsbyAmJiBob3N0bmFtZSAmJiBlY2hvICRDT0xPUgo=' | base64 -d | srun -K1 --export=ALL -N 1 -n 1 --ntasks-per-node=1 /bin/bash && srun /bin/bash -c 'hostname && sleep 360'",
+
+                # Encoding script
+                encoded_script = b64encode(script.encode("utf8")).decode("utf8")
+
+                job_json = """
+{{
+    "script": "#!/bin/bash\\necho '{encoded_script}' | base64 -d | /bin/bash",
+    "job": {{
+        "time_limit": {{
+            "number": 5,
+            "set": True,
+            "infinite": False
+        }},
+        "exclusive": ["true","true"],
+        "nodes": "1",
+        "memory_per_node" : {{
+            "number" : 1,
+            "set" : True,
+            "infinite" : False
+        }},
+        "partition": "all",
+        "tasks": 2,
+        "current_working_directory": "{scratchdir}/{username}/",
+        "standard_output": "{scratchdir}/{username}/{job_name}.out",
+        "standard_error": "{scratchdir}/{username}/{job_name}.out",
+        "name": "jarvice_{job_name}",
+        "environment": [
+            "JARVICE=true"
+        ],
+        "hold": False
+    }}
+}}
+    """.format(
+            job_name=name,
+            encoded_script=encoded_script,
+            scratchdir=self.job_scratch_dir,
+            username=self.job_mapped_user
+        )
+
+    #         "tres_per_node":"gres/gpu=1",
+
+                submit_cmd = """
+mkdir -p $HOME/.jarvice &&\
+curl -X POST {slurmrestd_host}:{slurmrestd_port}/slurm/{slurmrestd_api_version}/job/submit \
+-H "X-SLURM-USER-NAME:{username}" \
+-H "X-SLURM-USER-TOKEN:{jwt_token}" \
+-H "Content-Type: application/json" \
+-d @- <<- EOF
+{job_json}
+EOF
+    """.format(
+            slurmrestd_host=self.slurmrestd_host,
+            slurmrestd_port=self.slurmrestd_port,
+            slurmrestd_api_version=self.slurmrestd_api_version,
+            job_json=job_json,
+            username=self.job_mapped_user,
+            jwt_token=bearer # os.getenv('SLURM_JWT')
+        )
+                print(submit_cmd)
+            except Exception as e:
+                print('Could not generate job json or cmd: ' + str(e))
+            stdout, stderr = self.ssh(submit_cmd)
+
+
+            if not stdout:
+                # self.pmgr.unreserve(number)  --> BEN
+                raise Exception(
+                    'submit(): sbatch: ' + stderr.replace('\n', ' -- '))
+
+            # HTTP ONLY
+            job_id = json.loads(stdout)['job_id']
+
+        elif self.slurm_interface == "cli":
+
+            # SSH WAY
+            # USER ID MAPPING
+            # Decode bearer token so we know the user mail for id mapping
+            user_mail = "benoit.leveugle@eviden.com" # jwt.decode(bearer, options={"verify_signature": False})['email']
+            job_mapped_user, job_mapped_user_private_key = self.user_id_mapping(user_mail)
+            print(1)
+            # Store this user in database since it will be needed later
+            # Reason is: bearer token is only passed once, and we still need this mapping for later.
+
+            # Jarvice user is stored inside job name, extract it
+            jarvice_user = name.split('-')[-1].split('_')[0]
+            print(2)
+            # Now update local cache
+            # We use YAML now, but a better approach would be to use sqlite DB.
+            # Important note: in case of K8S, we should use a secret, so that this is shared between replicas.
+            if Path('users_mapping_db.yaml').is_file():
+                with open('users_mapping_db.yaml', 'r') as file:
+                    users_mapping_db = yaml.safe_load(file)
+            else:
+                users_mapping_db = {}
+            if not jarvice_user in users_mapping_db:
+                users_mapping_db[jarvice_user] = {}
+            users_mapping_db[jarvice_user]['email'] = user_mail
+            users_mapping_db[jarvice_user]['mapped_user'] = job_mapped_user
+            users_mapping_db[jarvice_user]['ssh_private_key_b64'] = job_mapped_user_private_key
+            with open('users_mapping_db.yaml', 'w') as file:
+                yaml.dump(users_mapping_db, file)
+            print(3)
+            job_mapped_user_private_key = b64decode(job_mapped_user_private_key).decode('utf-8')
+            print(4)
+            # ssh to cluster and submit job
+            stdout, stderr = self.ssh_as_user(
+                job_mapped_user,
+                job_mapped_user_private_key,
+                'mkdir -p $HOME/.jarvice && \
+                    sbatch %s %s %s %s %s %s \
+                    --parsable -J "jarvice_%s" -o "%s.jarvice/%s.out" \
+                    -n %d -N %d %s %s' %
+                ('-p ' + slurm_part if slurm_part else '',
+                    '--mem=' + slurm_mem + 'G' if slurm_mem else '',
+                    '--gpus-per-node=' + slurm_gpus if slurm_gpus else '',
+                    '--exclusive' if slurm_exclusive else '',
+                    '--time=' + slurm_time if slurm_time else '',
+                    sbatch_add_params if sbatch_add_params else '',
+                    name, self.job_scratch_dir,
+                    name, jobobj_cores * nodes, nodes, '-H' if held else '',
+                    f'-L {licenses}' if licenses else ''),
+                instr=script)
+            print(script)
+            print(5)
+            print("COUCOU")
+            print(stdout)
+            print(stderr)
+            if not stdout:
+                # self.pmgr.unreserve(number)  --> BEN
+                raise Exception(
+                    'submit(): sbatch: ' + stderr.replace('\n', ' -- '))
+        
+            # SSH
+            job_id = stdout
+
 
         # remove sensitive lines from script before storing
         slines = [
@@ -734,20 +1007,32 @@ fi
             if not [x for x in slines if x == i[:len(x)]]:
                 fscript += (i + '\n')
 
-        return stdout, fscript
+        return job_id, fscript
 
     def gc_job(self, name, number, jobid, cancel=False):
         """ garbage collects slurm and k8s objects for a single job """
+
+        job_mapped_user, job_mapped_user_private_key = self.user_id_mapping_from_cache(name)
+
         # cancel Slurm job if asked
         if cancel:
             self.log.info(f'Cancelling job: {jobid}')
-            self.ssh('scancel -f ' + jobid)
+            self.ssh_as_user(
+                job_mapped_user,
+                job_mapped_user_private_key,
+                'scancel -f ' + jobid
+            )
 
         # Slurm objects (best effort)
         self.log.info(f'Garbage collecting job: {jobid}')
-        self.ssh('/bin/sh -c "nohup rm -Rf %s.out %s >/dev/null 2>&1 &"' % (
-            self.scratchdir + '.jarvice/' + name,
-            self.scratchdir + '.jarvice/jobs/' + jobid))
+        self.ssh_as_user(
+                job_mapped_user,
+                job_mapped_user_private_key,
+                '/bin/sh -c "nohup rm -Rf %s.out %s >/dev/null 2>&1 &"' % (
+                    self.job_scratch_dir + '.jarvice/' + name,
+                    self.job_scratch_dir + '.jarvice/jobs/' + jobid
+                )
+        )
 
     def squeue(self, user=None, states=None):
         """ runs squeue (with optional filters) and returns parsed list """
@@ -757,10 +1042,7 @@ fi
         queue = []
         fmt = '%j|%A'
         cmd = 'squeue --noheader'
-        if user:
-            cmd += (' -u "%s"' % user)
-        else:
-            fmt += '|%u'
+        fmt += '|%u'
         if states:
             cmd += (' -t "%s"' % states)
         else:
@@ -769,14 +1051,12 @@ fi
         stdout, stderr = self.ssh(cmd)
         for line in stdout.splitlines():
             if line.startswith('jarvice_'):
-                queue.append(line[8:].split('|'))
+                queue.append(line[8:].split('|')[0:2])
         return queue
 
     def squeue1(self, jobid, user=None):
         """ returns job info on a single job """
         cmd = 'squeue --noheader -o "%%t|%%M|%%N" -j %s -t all' % jobid
-        if user:
-            cmd += ' -u "%s"' % user
         stdout, stderr = self.ssh(cmd)
         try:
             state, elapsed, nodes = stdout.split('|')
@@ -845,7 +1125,32 @@ fi
             stdout = stdout.read().decode().rstrip()
             stderr = stderr.read().decode().rstrip()
             if len(stdout) > 1:
-                self.log.info('stdout: %s' % stdout)
+                self.log.debug('stdout: %s' % stdout)
             if len(stderr) > 1:
-                self.log.info('stderr: %s' % stderr)
+                self.log.debug('stderr: %s' % stderr)
+            return stdout, stderr
+
+    def ssh_as_user(self, user, pkey, cmd, instr=None):
+        """ SSH's to slurm cluster as specific user and returns stdout/stderr """
+
+        with paramiko.client.SSHClient() as client:
+            client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            client.connect(
+                self.ssh_host, username=user,
+                port=self.ssh_port,
+                pkey=self.ssh_key_load(pkey))
+
+            self.log.info(
+                'ssh -p %s %s@%s %s' % (str(self.ssh_port),
+                                        user, self.ssh_host, cmd))
+            stdin, stdout, stderr = client.exec_command(cmd)
+            if instr:
+                stdin.write(instr.encode())
+            stdin.close()
+            stdout = stdout.read().decode().rstrip()
+            stderr = stderr.read().decode().rstrip()
+            if len(stdout) > 1:
+                self.log.debug('stdout: %s' % stdout)
+            if len(stderr) > 1:
+                self.log.debug('stderr: %s' % stderr)
             return stdout, stderr

@@ -1,4 +1,5 @@
 launch_dev.sh
 users_mapping_db.yaml
 __pycache__
+users_id_mapping_configuration.yaml
 jobs.db
