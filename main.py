@@ -52,17 +52,14 @@ def gc():
 # - 500 if something failed
 @app.route("/submit", methods=['POST'])
 def submit():
-    try:
-        args = json.loads(request.form.get("args"))
-        hpc_script = args['hpc_script']
-        name = args["name"]
-        number = args["number"]
-        nodes = args["nodes"]
-        bearer = args["bearer"]
-        return jsonify(
-            baremetal_connector.submit(name, number, nodes, hpc_script, bearer)), 200
-    except Exception as e:
-        return "Submitting job failed, investigate logs", 500
+    args = json.loads(request.form.get("args"))
+    hpc_script = args['hpc_script']
+    name = args["name"]
+    number = args["number"]
+    nodes = args["nodes"]
+    bearer = args["bearer"]
+    return jsonify(
+        baremetal_connector.submit(name, number, nodes, hpc_script, bearer)), 200
 
 
 # /nodes
@@ -79,10 +76,8 @@ def nodes():
 # - 500 if something failed
 @app.route("/running", methods=['GET'])
 def running():
-    try:
-        return jsonify(baremetal_connector.running()), 200
-    except Exception as e:
-        return "Getting running jobs list failed, investigate logs", 500
+    return jsonify(baremetal_connector.running()), 200
+
 
 # /queued
 # send to upstream the list of jobids queued
@@ -92,10 +87,8 @@ def running():
 # - 500 if something failed
 @app.route("/queued", methods=['GET'])
 def queued():
-    try:
-        return jsonify(baremetal_connector.queued()), 200
-    except Exception as e:
-        return "Getting queued jobs list failed, investigate logs", 500
+    return jsonify(baremetal_connector.queued()), 200
+
 
 # /exitstatus
 # returns exit status of a completed job, along with the total time of the job, and the final logs of the job
@@ -115,14 +108,11 @@ def queued():
 # Important: gc_job (aka cleaning of job files, etc.) must be done at this stage, so existatus MUST garbage collect the job
 @app.route("/exitstatus", methods=['POST'])
 def exitstatus():
-    try:
-        args = json.loads(request.form.get("args"))
-        name = args["name"]
-        number = args["number"]
-        jobid = args["jobid"]
-        return jsonify(baremetal_connector.exitstatus(name, number, jobid)), 200
-    except Exception as e:
-        return "Exitstatus failed, investigate logs", 500
+    args = json.loads(request.form.get("args"))
+    name = args["name"]
+    number = args["number"]
+    jobid = args["jobid"]
+    return jsonify(baremetal_connector.exitstatus(name, number, jobid)), 200
 
 
 # /runstatus
@@ -138,14 +128,11 @@ def exitstatus():
 @app.route("/runstatus", methods=['POST'])
 def runstatus():
     # Dropping rc, not needed for this downstream
-    try:
-        args = json.loads(request.form.get("args"))
-        name = args["name"]
-        number = args["number"]
-        jobid = args["jobid"]
-        return jsonify(baremetal_connector.runstatus(name, number, jobid)), 200
-    except Exception as e:
-        return "Runstatus failed, investigate logs", 500
+    args = json.loads(request.form.get("args"))
+    name = args["name"]
+    number = args["number"]
+    jobid = args["jobid"]
+    return jsonify(baremetal_connector.runstatus(name, number, jobid)), 200
 
 
 # /terminate
@@ -154,14 +141,11 @@ def runstatus():
 @app.route("/terminate", methods=['POST'])
 def terminate():
     # Dropping nodes and force, not needed for this downstream
-    try:
-        args = json.loads(request.form.get("args"))
-        name = args["name"]
-        number = args["number"]
-        jobid = args["jobid"]
-        return jsonify(baremetal_connector.terminate(name, number, jobid)), 200
-    except Exception as e:
-        return "Terminate failed, investigate logs", 500
+    args = json.loads(request.form.get("args"))
+    name = args["name"]
+    number = args["number"]
+    jobid = args["jobid"]
+    return jsonify(baremetal_connector.terminate(name, number, jobid)), 200
 
 
 # /online
@@ -177,14 +161,11 @@ def online():
 # returns True, 200 if ok
 @app.route("/release", methods=['POST'])
 def release():
-    try:
-        args = json.loads(request.form.get("args"))
-        name = args["name"]
-        number = args["number"]
-        jobid = args["jobid"]
-        return jsonify(baremetal_connector.release(name, number, jobid)), 200
-    except Exception as e:
-        return "release failed, investigate logs", 500
+    args = json.loads(request.form.get("args"))
+    name = args["name"]
+    number = args["number"]
+    jobid = args["jobid"]
+    return jsonify(baremetal_connector.release(name, number, jobid)), 200
 
 
 # /events
@@ -192,15 +173,11 @@ def release():
 # returns events, 200 with events being some stdout of the events call
 @app.route("/events", methods=['POST'])
 def events():
-    try:
-        args = json.loads(request.form.get("args"))
-        name = args["name"]
-        number = args["number"]
-        jobid = args["jobid"]
-        return jsonify(baremetal_connector.events(name, number, jobid)), 200
-    except Exception as e:
-        return "Events failed, investigate logs", 500
-
+    args = json.loads(request.form.get("args"))
+    name = args["name"]
+    number = args["number"]
+    jobid = args["jobid"]
+    return jsonify(baremetal_connector.events(name, number, jobid)), 200
 
 
 # /request/XXXX
@@ -212,21 +189,11 @@ def events():
 
 @app.route('/request/<path:path>', methods=['POST'])
 def requests(path):
-    try:
-        # print("-----------------------------------")
-        # print(request.form)
-        #print("-----------------------------------")
         args = json.loads(request.form.get("args"))
-        #print(args)
-        #print("-----------------------------------")
         qs = args["qs"]
-
         # This method is not "standard"
         # as it can return raw content or json based content
         code, content_type, content = baremetal_connector.request(path, qs)
-        #print(code)
-        #print(content_type)
-        #print(content)
         if content_type == 'application/json':
             ret = json.loads(content)
             return jsonify(ret)
@@ -235,8 +202,6 @@ def requests(path):
                 return "", code
             else:
                 return content, code
-    except Exception as e:
-        return "request failed, investigate logs", 500
 
 
 # ## RUNNING SERVER
