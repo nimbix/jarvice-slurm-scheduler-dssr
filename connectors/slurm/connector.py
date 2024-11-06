@@ -86,15 +86,16 @@ class baremetal_connector(object):
         self.overlay_size = os.getenv('JARVICE_SINGULARITY_OVERLAY_SIZE', 600)
 
         # ############## Slurm REST API ##############
-        self.slurmrestd_host = os.environ['JARVICE_SLURMRESTD_ADDR']
-        self.slurmrestd_port = os.environ['JARVICE_SLURMRESTD_PORT']
-        self.slurmrestd_api_version = os.environ['JARVICE_SLURMRESTD_API_VERSION']
+        if self.slurm_interface == 'http':
+            self.slurmrestd_host = os.getenv('JARVICE_SLURMRESTD_ADDR')
+            self.slurmrestd_port = os.getenv('JARVICE_SLURMRESTD_PORT')
+            self.slurmrestd_api_version = os.getenv('JARVICE_SLURMRESTD_API_VERSION')
 
         # ############## SSH to slurm cluster ###############
-        self.ssh_host = os.environ['JARVICE_SLURM_CLUSTER_ADDR']
+        self.ssh_host = os.getenv('JARVICE_SLURM_CLUSTER_ADDR')
         self.ssh_port = os.getenv('JARVICE_SLURM_CLUSTER_PORT', default=22)
-        self.ssh_user = os.environ['JARVICE_SLURM_SSH_USER']
-        self.ssh_pkey = os.environ['JARVICE_SLURM_SSH_PKEY']
+        self.ssh_user = os.getenv('JARVICE_SLURM_SSH_USER')
+        self.ssh_pkey = os.getenv('JARVICE_SLURM_SSH_PKEY')
 
         self.log.info('')
         self.log.info(self.init_dockeruser)
@@ -103,10 +104,11 @@ class baremetal_connector(object):
         self.log.info(f'|     host: {self.ssh_host}')
         self.log.info(f'|     port: {self.ssh_port}')
         self.log.info(f'|     jarvice user: {self.ssh_user}')
-        self.log.info('|-- HTTP API connection to target slurmrestd (if relevant):')
-        self.log.info(f'|     host: {self.slurmrestd_host}')
-        self.log.info(f'|     port: {self.slurmrestd_port}')
-        self.log.info(f'|     api_version: {self.slurmrestd_api_version}')
+        if self.slurm_interface == 'http':
+            self.log.info('|-- HTTP API connection to target slurmrestd (if relevant):')
+            self.log.info(f'|     host: {self.slurmrestd_host}')
+            self.log.info(f'|     port: {self.slurmrestd_port}')
+            self.log.info(f'|     api_version: {self.slurmrestd_api_version}')
         self.log.info('|-- Script environment:')
         self.log.info(f'|     Jobs scratch dir: {self.job_scratch_dir}')
         self.log.info(f'|     http_proxy: {self.baremetal_http_proxy}')
@@ -191,7 +193,7 @@ class baremetal_connector(object):
 
     def queued(self):
         """ returns list of queued jobs as [(name, jobid), ...]"""
-        return self.squeue(user=self.ssh_user, states='PD,RD,RF')
+        return self.squeue(user=self.ssh_user, states='CF,PD,RD,RF')
 
     def exitstatus(self, name, number, jobid):
         """ returns exit status of a completed job """
@@ -437,8 +439,11 @@ class baremetal_connector(object):
         self.log.info(f'Job submittion request for {name}:{number}')
 
         # Grab executor script only, and decode it
-        hpc_script = b64decode(
-            hpc_script[self.baremetal_executor]).decode('utf-8')
+        try:
+            hpc_script = b64decode(
+                hpc_script[self.baremetal_executor]).decode('utf-8')
+        except Exception as e:
+            raise Exception("Could not decode hpc_script " + str(e))
         connection_string = """
 # --------------------------------------------------------------------------
 # Main parameters from baremetal Dowstream
@@ -920,14 +925,11 @@ EOF
             username=self.job_mapped_user,
             jwt_token=bearer # os.getenv('SLURM_JWT')
         )
-                print(submit_cmd)
             except Exception as e:
-                print('Could not generate job json or cmd: ' + str(e))
+                raise Exception('Could not generate job json or cmd: ' + str(e))
             stdout, stderr = self.ssh(submit_cmd)
 
-
             if not stdout:
-                # self.pmgr.unreserve(number)  --> BEN
                 raise Exception(
                     'submit(): sbatch: ' + stderr.replace('\n', ' -- '))
 
@@ -939,15 +941,18 @@ EOF
             # SSH WAY
             # USER ID MAPPING
             # Decode bearer token so we know the user mail for id mapping
-            user_mail = "benoit.leveugle@eviden.com" # jwt.decode(bearer, options={"verify_signature": False})['email']
+            try:
+                user_mail = jwt.decode(bearer, options={"verify_signature": False})['email']
+            except Exception as e:
+                raise Exception("Could not decode bearer token or find user email " + str(e))
             job_mapped_user, job_mapped_user_private_key = self.user_id_mapping(user_mail)
-            print(1)
+            if job_mapped_user is None or job_mapped_user_private_key is None:
+                raise Exception("Error, could not find user in id mapping file, aborting job.")
             # Store this user in database since it will be needed later
             # Reason is: bearer token is only passed once, and we still need this mapping for later.
 
             # Jarvice user is stored inside job name, extract it
             jarvice_user = name.split('-')[-1].split('_')[0]
-            print(2)
             # Now update local cache
             # We use YAML now, but a better approach would be to use sqlite DB.
             # Important note: in case of K8S, we should use a secret, so that this is shared between replicas.
@@ -963,9 +968,7 @@ EOF
             users_mapping_db[jarvice_user]['ssh_private_key_b64'] = job_mapped_user_private_key
             with open('users_mapping_db.yaml', 'w') as file:
                 yaml.dump(users_mapping_db, file)
-            print(3)
             job_mapped_user_private_key = b64decode(job_mapped_user_private_key).decode('utf-8')
-            print(4)
             # ssh to cluster and submit job
             stdout, stderr = self.ssh_as_user(
                 job_mapped_user,
@@ -984,19 +987,11 @@ EOF
                     name, jobobj_cores * nodes, nodes, '-H' if held else '',
                     f'-L {licenses}' if licenses else ''),
                 instr=script)
-            print(script)
-            print(5)
-            print("COUCOU")
-            print(stdout)
-            print(stderr)
             if not stdout:
-                # self.pmgr.unreserve(number)  --> BEN
                 raise Exception(
                     'submit(): sbatch: ' + stderr.replace('\n', ' -- '))
-        
-            # SSH
+            # job output is the job_id returned by slurm
             job_id = stdout
-
 
         # remove sensitive lines from script before storing
         slines = [
