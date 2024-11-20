@@ -58,7 +58,7 @@ class baremetal_connector(object):
                     for job in jobs:
                         job_starttime = int(job[3])
                         if current_time - job_starttime < self.job_queued_time :
-                            queueds.append(job)
+                            queueds.append([job[0], job[2]])
                 except sqlite3.Error as e:
                     raise Exception(e) 
                 return queueds
@@ -74,7 +74,7 @@ class baremetal_connector(object):
                     for job in jobs:
                         job_starttime = int(job[3])
                         if (current_time - job_starttime > self.job_queued_time ) and (current_time - job_starttime < self.job_queued_time + self.job_running_time) :
-                            queueds.append(job)
+                            queueds.append([job[0], job[2]])
                 except sqlite3.Error as e:
                     raise Exception(e) 
                 return queueds
