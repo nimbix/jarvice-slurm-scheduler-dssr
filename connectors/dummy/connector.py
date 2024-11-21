@@ -154,8 +154,12 @@ class baremetal_connector(object):
         try:
             jobname, jobnum, jobid, method = path.lstrip('/').split('/')
         except Exception:
-            print('Path decode failed for ' + str(path))
-            return rsp(400)
+            try:
+                jobname, jobnum, jobid = path.lstrip('/').split('/')
+                method = ""
+            except Exception:
+                print('Path decode failed for ' + str(path))
+                return rsp(400)
 
         # methods
         if method == 'ping':
