@@ -3,6 +3,7 @@ import os
 import time
 import random
 import datetime
+import json
 from contextlib import closing
 
 class baremetal_connector(object):
@@ -147,7 +148,6 @@ class baremetal_connector(object):
             return code, content_type, content
 
         def rsp_json(code, dct):
-            self.log.info("rsp_json")
             return rsp(code, 'application/json', json.dumps(dct))
 
         # jobname and job ID are encoded in path, as we stated in /runstatus
