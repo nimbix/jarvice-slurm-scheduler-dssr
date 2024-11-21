@@ -112,8 +112,8 @@ class baremetal_connector(object):
                     job = cursor.execute("SELECT name, number, jobid, starttime FROM jobs WHERE name = ?", (name,),).fetchall()
                 except sqlite3.Error as e:
                     raise Exception(e) 
-        elapsedtime = str(datetime.timedelta(seconds=(int(time.time()) - int(job[3]))))
-        return ("sqlite3_dummy", elapsed, name + '/' + str(number) + '/' + jobid, None)
+        elapsedtime = str(datetime.timedelta(seconds=(int(time.time()) - int(job[0][3]))))
+        return ("sqlite3_dummy", elapsedtime, name + '/' + str(number) + '/' + jobid, None)
 
     def terminate(self, name, number, jobid, force=False, nodes=[]):
         """ terminates a job """
