@@ -3,6 +3,7 @@ import os
 import time
 import random
 import datetime
+import json
 from contextlib import closing
 
 class baremetal_connector(object):
@@ -58,7 +59,7 @@ class baremetal_connector(object):
                     for job in jobs:
                         job_starttime = int(job[3])
                         if current_time - job_starttime < self.job_queued_time :
-                            queueds.append(job)
+                            queueds.append([job[0], job[2]])
                 except sqlite3.Error as e:
                     raise Exception(e) 
                 return queueds
@@ -74,7 +75,7 @@ class baremetal_connector(object):
                     for job in jobs:
                         job_starttime = int(job[3])
                         if (current_time - job_starttime > self.job_queued_time ) and (current_time - job_starttime < self.job_queued_time + self.job_running_time) :
-                            queueds.append(job)
+                            queueds.append([job[0], job[2]])
                 except sqlite3.Error as e:
                     raise Exception(e) 
                 return queueds
@@ -112,8 +113,8 @@ class baremetal_connector(object):
                     job = cursor.execute("SELECT name, number, jobid, starttime FROM jobs WHERE name = ?", (name,),).fetchall()
                 except sqlite3.Error as e:
                     raise Exception(e) 
-        elapsedtime = str(datetime.timedelta(seconds=(int(time.time()) - int(job[3]))))
-        return ("sqlite3_dummy", elapsed, name + '/' + str(number) + '/' + jobid, None)
+        elapsedtime = str(datetime.timedelta(seconds=(int(time.time()) - int(job[0][3]))))
+        return ("sqlite3_dummy", elapsedtime, name + '/' + str(number) + '/' + jobid, None)
 
     def terminate(self, name, number, jobid, force=False, nodes=[]):
         """ terminates a job """
@@ -147,15 +148,18 @@ class baremetal_connector(object):
             return code, content_type, content
 
         def rsp_json(code, dct):
-            self.log.info("rsp_json")
             return rsp(code, 'application/json', json.dumps(dct))
 
         # jobname and job ID are encoded in path, as we stated in /runstatus
         try:
             jobname, jobnum, jobid, method = path.lstrip('/').split('/')
         except Exception:
-            print('Path decode failed for ' + str(path))
-            return rsp(400)
+            try:
+                jobname, jobnum, jobid = path.lstrip('/').split('/')
+                method = ""
+            except Exception:
+                print('Path decode failed for ' + str(path))
+                return rsp(400)
 
         # methods
         if method == 'ping':
