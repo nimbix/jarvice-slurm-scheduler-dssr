@@ -18,7 +18,7 @@ class baremetal_connector(object):
         # Percent of failing jobs (random with probability based on this ratio)
         self.job_failing_percent = int(os.getenv('JARVICE_DUMMY_JOB_FAILING_PERCENT', '50'))
         # Make jobs interactive and return a fake url
-        self.jobs_are_interactive = os.getenv('JARVICE_JOBS_ARE_INTERACTIVE', 'False')
+        self.jobs_are_interactive = os.getenv('JARVICE_DUMMY_JOBS_ARE_INTERACTIVE', 'False')
 
         with closing(sqlite3.connect("jobs.db")) as connection:
             with closing(connection.cursor()) as cursor:
