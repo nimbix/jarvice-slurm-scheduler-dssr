@@ -17,6 +17,8 @@ class baremetal_connector(object):
         self.job_queued_time = int(os.getenv('JARVICE_DUMMY_JOB_QUEUED_TIME', '5'))
         # Percent of failing jobs (random with probability based on this ratio)
         self.job_failing_percent = int(os.getenv('JARVICE_DUMMY_JOB_FAILING_PERCENT', '50'))
+        # Make jobs interactive and return a fake url
+        self.jobs_are_interactive = os.getenv('JARVICE_JOBS_ARE_INTERACTIVE', 'False')
 
         with closing(sqlite3.connect("jobs.db")) as connection:
             with closing(connection.cursor()) as cursor:
@@ -171,6 +173,9 @@ class baremetal_connector(object):
         elif method == 'info':
             # Interactive job, not supported in this dummy code
             readyjson = {'about': '', 'help': '', 'url': '', 'actions': {}}
+            if self.jobs_are_interactive == 'True':
+                readyjson['url'] = "http://localhost:8080"
+
             return rsp_json(200, readyjson)
         elif method == 'tail':
             # We should return plain text stdout of the job
