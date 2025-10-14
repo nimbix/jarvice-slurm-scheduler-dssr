@@ -44,6 +44,16 @@ def gc():
         return jsonify({"status": "BAD"}), 500
 
 
+# /idmapper
+# Not for DSSR, just return best effort
+@app.route("/idmapper", methods=['POST'])
+def idmapper():
+    args = json.loads(request.form.get("args"))
+    upn = args['upn']
+    sam = args['sam']
+    return jsonify(None, upn), 200
+
+
 # /submit
 # submit a new job to target cluster
 # We receive name of the job, number of the job, nb of nodes to allocate to the job, a bearer token (optional) and the hpc_script to execute.
